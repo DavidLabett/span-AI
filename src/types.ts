@@ -41,3 +41,28 @@ export interface Project {
 export type NodeMap = Record<string, Node>
 export type EdgeMap = Record<string, Edge>
 
+// Document processing types
+export interface DocumentSegment {
+  id: string
+  level: number  // hierarchy depth (0 = root, 1 = chapter, etc.)
+  text: string
+  type: 'chapter' | 'section' | 'paragraph'
+  parentId?: string
+  // PDF-specific metadata (optional, only for PDFs)
+  fontSize?: number
+  isBold?: boolean
+  yPosition?: number  // Vertical position on page (for ordering)
+  pageNumber?: number
+}
+
+// Hierarchy detection types (Phase 3)
+export interface HierarchyNode {
+  id: string
+  title: string
+  level: number
+  content: string
+  children: HierarchyNode[]
+  parentId?: string
+  segmentId?: string  // Reference to original DocumentSegment
+}
+

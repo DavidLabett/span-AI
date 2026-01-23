@@ -26,27 +26,27 @@ Document → Segmentation → LLM Hierarchy Detection → Node Generation (Title
 > Goal: Accept document input and break it into logical segments.
 
 #### 1.1 File Input Support
-- [ ] Add "Import Document" option to menu/UI
-  - [ ] PDF files (.pdf) - **Primary format**
-  - [ ] Text files (.txt)
-  - [ ] Markdown files (.md)
+- [x] Add "Import Document" option to menu/UI
+  - [x] PDF files (.pdf) - **Primary format** (using `pdf2json`)
+  - [x] Text files (.txt)
+  - [x] Markdown files (.md)
   - [ ] Plain text from clipboard (optional)
-- [ ] File dialog integration (reuse existing IPC patterns)
-- [ ] Read file content into memory
-- [ ] PDF text extraction:
-  - [ ] Install PDF parsing library (e.g., `pdf-parse`, `pdfjs-dist`)
-  - [ ] Extract text content from PDF pages
-  - [ ] Preserve basic structure (page breaks, headings if detectable)
+- [x] File dialog integration (reuse existing IPC patterns)
+- [x] Read file content into memory
+- [x] PDF text extraction:
+  - [x] Install PDF parsing library (using `pdf2json` for Node.js compatibility)
+  - [x] Extract text content from PDF pages
+  - [x] Preserve basic structure (page breaks, headings if detectable)
 
 #### 1.2 Basic Segmentation
-- [ ] Create `src/utils/documentParser.ts`
-- [ ] Implement segmentation logic:
-  - [ ] **PDF-specific**: Extract text with structure hints (font sizes, bold text as potential headers)
-  - [ ] Split by markdown headers (`#`, `##`, `###`) for .md files
-  - [ ] Split by paragraph breaks (double newline)
-  - [ ] Detect chapter/section boundaries
-  - [ ] Handle PDF page breaks (optional: preserve page numbers)
-- [ ] Store segments with metadata:
+- [x] Create `src/utils/documentParser.ts`
+- [x] Implement segmentation logic:
+  - [x] **PDF-specific**: Extract text with structure hints (font sizes, bold text as potential headers)
+  - [x] Split by markdown headers (`#`, `##`, `###`) for .md files
+  - [x] Split by paragraph breaks (double newline)
+  - [x] Detect chapter/section boundaries
+  - [x] Handle PDF page breaks (optional: preserve page numbers)
+- [x] Store segments with metadata:
   ```ts
   interface DocumentSegment {
     id: string
@@ -56,9 +56,11 @@ Document → Segmentation → LLM Hierarchy Detection → Node Generation (Title
     parentId?: string
   }
   ```
-- [ ] Display raw segments in console/log for debugging
+- [x] Display raw segments in console/log for debugging
 
-**Deliverable:** Can import a document and see it segmented into logical chunks.
+**Deliverable:** ✅ **COMPLETE** - Can import a document and see it segmented into logical chunks.
+
+**Status:** Phase 1 is complete! Both PDF and Markdown files can be imported and segmented. Text files also work. The only optional feature not implemented is clipboard support.
 
 ---
 
@@ -67,17 +69,17 @@ Document → Segmentation → LLM Hierarchy Detection → Node Generation (Title
 > Goal: Set up local Ollama connection and basic prompt structure.
 
 #### 2.1 Ollama Setup & Verification
-- [ ] Verify Ollama is installed and running locally
-  - [ ] Check if Ollama service is accessible at `http://localhost:11434`
-  - [ ] Add detection/validation in UI (show status indicator)
-- [ ] Ensure `gemma3:1b` model is available:
-  - [ ] Check if model exists: `ollama list`
-  - [ ] If not, prompt user to pull: `ollama pull gemma3:1b`
-  - [ ] Add helper function to verify model availability
+- [x] Verify Ollama is installed and running locally
+  - [x] Check if Ollama service is accessible at `http://localhost:11434`
+  - [x] Add detection/validation in UI (via `useOllama` hook)
+- [x] Ensure `gemma3:1b` model is available:
+  - [x] Check if model exists via `/api/tags` endpoint
+  - [x] If not, show helpful error message with instructions
+  - [x] Add helper function to verify model availability
 
 #### 2.2 LLM Client Setup
-- [ ] Install HTTP client library (`fetch` for Ollama API)
-- [ ] Create `src/utils/llmClient.ts`:
+- [x] Install HTTP client library (`fetch` for Ollama API - using Node.js http in main process)
+- [x] Create `src/utils/llmClient.ts`:
   ```ts
   interface LLMConfig {
     baseUrl: string  // default: 'http://localhost:11434'
@@ -86,26 +88,30 @@ Document → Segmentation → LLM Hierarchy Detection → Node Generation (Title
   
   async function callLLM(prompt: string, config: LLMConfig): Promise<string>
   ```
-- [ ] Implement Ollama API calls:
-  - [ ] POST to `/api/generate` endpoint
-  - [ ] Handle streaming responses (optional, for progress)
-  - [ ] Parse JSON responses from model
-- [ ] Basic error handling:
-  - [ ] Ollama not running
-  - [ ] Model not found
-  - [ ] Network errors
-  - [ ] Invalid responses
-- [ ] Test with simple prompt to verify connection
+- [x] Implement Ollama API calls:
+  - [x] POST to `/api/generate` endpoint
+  - [x] Handle streaming responses (optional, for progress) - implemented but not used yet
+  - [x] Parse JSON responses from model
+- [x] Basic error handling:
+  - [x] Ollama not running
+  - [x] Model not found
+  - [x] Network errors
+  - [x] Invalid responses
+- [x] Test with simple prompt to verify connection (Shift+T keyboard shortcut)
 
 #### 2.3 IPC Integration
-- [ ] Add IPC handlers in `electron/ipc.ts`:
-  - [ ] `ai-generate-mindmap` - main generation endpoint
-  - [ ] `ai-check-ollama` - verify Ollama is running
-  - [ ] `ai-get-config` - retrieve current config (baseUrl, model)
-  - [ ] `ai-set-config` - update Ollama settings (optional: custom port)
-- [ ] Expose via preload script
+- [x] Add IPC handlers in `electron/ipc.ts`:
+  - [x] `ai-call-llm` - main LLM call endpoint (for Phase 3)
+  - [x] `ai-check-ollama` - verify Ollama is running
+  - [x] `ai-check-model` - verify model availability
+  - [x] `ai-get-config` - retrieve current config (baseUrl, model)
+  - [x] `ai-set-config` - update Ollama settings (optional: custom port)
+- [x] Expose via preload script
+- [x] Create `useOllama` hook for React components
 
-**Deliverable:** Can call LLM API and receive responses.
+**Deliverable:** ✅ **COMPLETE** - Can call LLM API and receive responses.
+
+**Status:** Phase 2 is complete! Ollama integration is set up with verification, configuration, and testing capabilities. Use `Shift+T` to test the connection.
 
 ---
 
@@ -114,7 +120,7 @@ Document → Segmentation → LLM Hierarchy Detection → Node Generation (Title
 > Goal: Use LLM to identify document structure and build a tree.
 
 #### 3.1 Hierarchy Detection Prompt
-- [ ] Design prompt template:
+- [x] Design prompt template:
   ```
   Analyze this document and identify its hierarchical structure.
   Return a JSON tree where each node has:
@@ -126,8 +132,8 @@ Document → Segmentation → LLM Hierarchy Detection → Node Generation (Title
   Document:
   {document}
   ```
-- [ ] Implement prompt building in `src/utils/aiPrompts.ts`
-- [ ] Parse JSON response into tree structure:
+- [x] Implement prompt building in `src/utils/aiPrompts.ts`
+- [x] Parse JSON response into tree structure:
   ```ts
   interface HierarchyNode {
     id: string
@@ -140,20 +146,22 @@ Document → Segmentation → LLM Hierarchy Detection → Node Generation (Title
   ```
 
 #### 3.2 Tree Construction
-- [ ] Create `src/utils/hierarchyBuilder.ts`
-- [ ] Convert flat segments → hierarchical tree
-- [ ] Handle edge cases:
-  - [ ] Missing parent references
-  - [ ] Circular dependencies
-  - [ ] Orphaned nodes
-- [ ] Validate tree structure before proceeding
+- [x] Create `src/utils/hierarchyBuilder.ts`
+- [x] Convert flat segments → hierarchical tree
+- [x] Handle edge cases:
+  - [x] Missing parent references
+  - [x] Circular dependencies
+  - [x] Orphaned nodes
+- [x] Validate tree structure before proceeding
 
 #### 3.3 Progress Feedback
-- [ ] Add progress indicator UI component
-- [ ] Show "Analyzing document..." status
-- [ ] Display hierarchy depth and node count
+- [x] Add progress indicator UI component
+- [x] Show "Analyzing document..." status
+- [x] Display hierarchy depth and node count
 
-**Deliverable:** Can analyze a document and receive a hierarchical tree structure.
+**Deliverable:** ✅ **COMPLETE** - Can analyze a document and receive a hierarchical tree structure.
+
+**Status:** Phase 3 is complete! The system can now detect document hierarchy using LLM. When importing a document, it automatically triggers hierarchy detection (if Ollama is ready) and displays progress in a modal. The hierarchy tree is validated and statistics are shown upon completion.
 
 ---
 
@@ -162,32 +170,32 @@ Document → Segmentation → LLM Hierarchy Detection → Node Generation (Title
 > Goal: For each node in hierarchy, generate title and bullet points.
 
 #### 4.1 Title Generation
-- [ ] For each hierarchy node:
-  - [ ] If LLM already provided title, use it
-  - [ ] Otherwise, prompt LLM: "Summarize this in 3-5 words: {content}"
-- [ ] Enforce max title length (e.g., 50 chars)
-- [ ] Fallback to first sentence if generation fails
+- [x] For each hierarchy node:
+  - [x] If LLM already provided title, use it
+  - [x] Otherwise, prompt LLM: "Summarize this in 3-5 words: {content}"
+- [x] Enforce max title length (e.g., 50 chars)
+- [x] Fallback to first sentence if generation fails
 
 #### 4.2 Bullet Point Extraction
-- [ ] Design prompt for bullet extraction:
+- [x] Design prompt for bullet extraction:
   ```
   Extract 3-5 key bullet points from this text:
   {content}
   
   Return as a simple list, one point per line.
   ```
-- [ ] Parse bullet points from response
-- [ ] Format as description string (join with newlines)
-- [ ] Limit to 5-7 bullets max per node
+- [x] Parse bullet points from response
+- [x] Format as description string (join with newlines)
+- [x] Limit to 5-7 bullets max per node
 
 #### 4.3 Batch Processing
-- [ ] Process nodes in batches to avoid rate limits
-- [ ] Add delay between API calls if needed
-- [ ] Show progress: "Generating content for node X of Y..."
-- [ ] Cache results to avoid re-processing
+- [x] Process nodes in batches to avoid rate limits
+- [x] Add delay between API calls if needed
+- [x] Show progress: "Generating content for node X of Y..."
+- [x] Cache results to avoid re-processing
 
 #### 4.4 Node Creation
-- [ ] Map hierarchy nodes → Span Node format:
+- [x] Map hierarchy nodes → Span Node format:
   ```ts
   const spanNode: Node = {
     id: generateId(),
@@ -200,10 +208,13 @@ Document → Segmentation → LLM Hierarchy Detection → Node Generation (Title
     collapsed: false,
   }
   ```
-- [ ] Use `createNode` from `useNodes` hook
-- [ ] Store hierarchy relationships for edge creation
+- [x] Use `setAllNodes` to create nodes on canvas
+- [x] Store hierarchy relationships for edge creation
+- [x] Create edges between parent-child nodes
 
-**Deliverable:** Can generate nodes with titles and bullet points from hierarchy.
+**Deliverable:** ✅ **COMPLETE** - Can generate nodes with titles and bullet points from hierarchy.
+
+**Status:** Phase 4 is complete! The system can now generate titles and bullet points for each hierarchy node using LLM, process them in batches with progress tracking, and create Span nodes with edges on the canvas. Nodes are created at position (0,0) and will be positioned by the layout engine in Phase 5.
 
 ---
 
@@ -330,18 +341,19 @@ Positioned nodes + edges → Canvas (via useNodes, useEdges)
 ```
 src/
 ├── utils/
-│   ├── documentParser.ts      # Segment documents (PDF, text, markdown)
-│   ├── pdfExtractor.ts        # PDF text extraction
-│   ├── llmClient.ts           # Ollama API wrapper
-│   ├── aiPrompts.ts           # Prompt templates
-│   ├── hierarchyBuilder.ts   # Build tree from segments
-│   └── layoutEngine.ts       # Hierarchical tree layout
-├── components/
-│   └── AIGenerationModal.tsx  # Progress UI
+│   ├── documentParser.ts      # ✅ Segment documents (PDF, text, markdown) - COMPLETE
+│   ├── llmClient.ts           # ✅ Ollama API wrapper - COMPLETE
+│   ├── aiPrompts.ts           # ✅ Prompt templates - COMPLETE
+│   ├── hierarchyBuilder.ts   # ✅ Build tree from segments - COMPLETE
+│   └── layoutEngine.ts       # ⏳ Hierarchical tree layout - Phase 5
 ├── hooks/
-│   └── useAIGeneration.ts     # Orchestrate generation flow
+│   ├── useDocumentImport.ts   # ✅ Document import hook - COMPLETE
+│   ├── useOllama.ts           # ✅ Ollama connection hook - COMPLETE
+│   └── useAIGeneration.ts     # ✅ Orchestrate generation flow - COMPLETE
+├── components/
+│   └── AIGenerationModal.tsx  # ✅ Progress UI - COMPLETE
 └── types.ts
-    └── DocumentSegment, HierarchyNode (additions)
+    └── DocumentSegment, HierarchyNode (additions) - COMPLETE
 ```
 
 ### Dependencies to Add
@@ -349,14 +361,13 @@ src/
 ```json
 {
   "dependencies": {
-    "axios": "^1.6.0",           // for Ollama API calls
-    "pdf-parse": "^1.1.1"        // for PDF text extraction
-  },
-  "devDependencies": {
-    "@types/pdf-parse": "^1.1.4"  // TypeScript types
+    "pdf2json": "^3.1.1"         // for PDF text extraction (Node.js compatible) - ✅ Installed
+    // "axios": "^1.6.0",       // for Ollama API calls - ⏳ Phase 2
   }
 }
 ```
+
+**Note:** Using `pdf2json` instead of `pdf-parse` for better Electron/Node.js compatibility (no DOM API dependencies).
 
 ### Configuration
 
@@ -379,13 +390,13 @@ Store in Electron config:
 
 ## Success Criteria
 
-1. ✅ User can import a document (PDF, text, markdown)
-2. ✅ PDF text is extracted and document is segmented into logical units
-3. ✅ Local Ollama (gemma3:1b) identifies hierarchical structure
-4. ✅ Each node gets a concise title and relevant bullet points
-5. ✅ Nodes are automatically laid out in readable hierarchical tree
-6. ✅ Edges connect parent-child relationships
-7. ✅ Generated mindmap can be edited, saved, and exported like any project
+1. ✅ User can import a document (PDF, text, markdown) - **Phase 1 Complete**
+2. ✅ PDF text is extracted and document is segmented into logical units - **Phase 1 Complete**
+3. ✅ Local Ollama (gemma3:1b) identifies hierarchical structure - **Phase 2-3 Complete**
+4. ✅ Each node gets a concise title and relevant bullet points - **Phase 4 Complete**
+5. ⏳ Nodes are automatically laid out in readable hierarchical tree - **Phase 5 Pending**
+6. ⏳ Edges connect parent-child relationships - **Phase 5 Pending**
+7. ⏳ Generated mindmap can be edited, saved, and exported like any project - **Phase 6 Pending**
 
 ---
 

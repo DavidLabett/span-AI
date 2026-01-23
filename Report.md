@@ -38,7 +38,7 @@ Embeddings är vektorepresentationer av text som fångar semantisk likhet. Medan
 
 Projektet använder flera viktiga bibliotek:
 
-- **pdf-parse**: För att extrahera textinnehåll från PDF-dokument med bevarande av grundläggande struktur (rubriker, stycken)
+- **pdf2json**: För att extrahera textinnehåll från PDF-dokument med bevarande av grundläggande struktur (rubriker, stycken). Valdes efter att ha testat `pdf-parse` och `pdfjs-dist` som inte fungerade i Electron-miljön.
 - **Ollama API**: Lokal LLM-tjänst som tillhandahåller REST API för att interagera med `gemma3:1b`-modellen
 - **React + react-konva**: För rendering av canvas och interaktiva noder
 - **Electron**: För desktop-applikation med filsystemåtkomst
@@ -99,6 +99,34 @@ PDF/text → Extraktion → Segmentering → LLM-analys → Hierarki → Nodgene
 - Barn-noder distribuerade horisontellt under föräldern
 - Rekursiv layout för subtrees
 
+### PDF-bibliotek: Utvecklingsprocess och tekniska utmaningar
+
+Under implementeringen av PDF-extraktion testades flera bibliotek innan en lösning hittades som fungerade i Electron-miljön:
+
+**1. pdf-parse (första försöket):**
+- Problem: Biblioteket är en ES-modul som inte kunde importeras korrekt i Electron's main process med `require()`
+- Fel: "Class constructor gr cannot be invoked without 'new'"
+- Orsak: Inkompatibilitet mellan ES-moduler och Electron's CommonJS-kontext
+
+**2. pdfjs-dist (Mozilla PDF.js):**
+- Problem: Biblioteket försöker använda DOM-API:er som `DOMMatrix` som inte finns tillgängliga i Node.js/Electron main process
+- Fel: "DOMMatrix is not defined"
+- Orsak: Biblioteket är designat för webbläsarmiljöer med DOM-stöd, inte för Node.js
+
+**3. pdf2json (slutlig lösning):**
+- Framgång: Biblioteket är designat specifikt för Node.js och kräver inga DOM-API:er
+- Fördelar: 
+  - Fungerar direkt i Electron main process utan polyfills
+  - Tillhandahåller både textinnehåll och metadata (font-storlekar, positioner)
+  - Event-baserad API som passar väl för asynkron bearbetning
+- Begränsningar: Extraherar endast textinnehåll, inte bilder eller komplex layout
+
+**Lärdomar:**
+- Electron main process kräver Node.js-kompatibla bibliotek utan DOM-beroenden
+- ES-moduler behöver dynamisk `import()` istället för `require()` i vissa fall
+- Bibliotek designade för webbläsare fungerar inte automatiskt i Node.js-miljöer
+- Valet av `pdf2json` möjliggör framtida förbättringar med font- och positionsdata för bättre segmentering
+
 ### Testning och validering
 
 - Testning med olika dokumenttyper (akademiska artiklar, blogginlägg, teknisk dokumentation)
@@ -135,6 +163,7 @@ PDF/text → Extraktion → Segmentering → LLM-analys → Hierarki → Nodgene
 - Mindre modeller kan ha svårigheter med komplexa dokumentstrukturer
 - Prompt engineering är kritisk för att få bra resultat
 - PDF-extraktion kan förlora strukturell information (formatering, layout)
+- Tekniska utmaningar med PDF-bibliotek: Flera bibliotek testades innan `pdf2json` valdes för Node.js-kompatibilitet i Electron-miljön
 
 **Framtida förbättringar:**
 - Stöd för större Ollama-modeller för bättre kvalitet

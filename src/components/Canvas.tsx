@@ -10,9 +10,13 @@ import { useNodes } from '../hooks/useNodes'
 import { useEdges } from '../hooks/useEdges'
 import { useProject } from '../hooks/useProject'
 import { useHistory } from '../hooks/useHistory'
+import { useDocumentImport } from '../hooks/useDocumentImport'
+import { useOllama } from '../hooks/useOllama'
+import { useAIGeneration } from '../hooks/useAIGeneration'
+import { AIGenerationModal } from './AIGenerationModal'
 import { typography, spacing, theme, colors } from '../theme'
 import { HandlePosition, findClosestHandleInNodes, getHandlePoints, getArrowPoints, SNAP_THRESHOLD } from '../utils/geometry'
-import { Node as NodeType } from '../types'
+import { Node as NodeType, Edge as EdgeType } from '../types'
 
 interface EditingState {
   nodeId?: string
@@ -54,13 +58,22 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   const [pasteOffset, setPasteOffset] = useState({ x: 0, y: 0 })
   // Track initial drag positions for multi-select
   const dragStartPositions = useRef<Record<string, { x: number; y: number }>>({})
-  
+
   const { camera, stageRef, handlers, screenToCanvas, canvasToScreen, setCameraPosition } = useCanvas()
   const { nodes, nodeList, createNode, moveNode, resizeNode, updateNode, toggleCollapse, deleteNode, setAllNodes } = useNodes({})
   const { edges, edgeList, createEdge, updateEdge, deleteEdge, setAllEdges } = useEdges()
 
   // History for undo/redo
   const { pushState, undo, redo, undoCount, redoCount, clearHistory } = useHistory()
+
+  // Document import
+  const { importDocument } = useDocumentImport()
+
+  // Ollama/LLM integration
+  const { callLLM, checkStatus, status: ollamaStatus } = useOllama()
+
+  // AI Generation (Phase 3-4: Hierarchy Detection & Node Content Generation)
+  const { progress: aiProgress, detectHierarchy, generateNodeContent, reset: resetAI } = useAIGeneration()
 
   // Project persistence
   const { save, open, loadProjectByPath, newProject, markDirty, isDirty, projectName, currentFilePath } = useProject({
@@ -96,17 +109,204 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
     if (success) markDirty()
   }, [redo, nodes, edges, setAllNodes, setAllEdges, markDirty])
 
+  // Test Ollama connection
+  const handleTestOllama = useCallback(async () => {
+    try {
+      console.log('=== Testing Ollama connection ===')
+
+      // Check status first
+      console.log('Step 1: Checking Ollama status...')
+      await checkStatus()
+
+      // Get updated status after check
+      console.log('Step 2: Fetching Ollama status from IPC...')
+      const updatedStatus = await window.electronAPI.aiCheckOllama()
+      console.log('Ollama status result:', updatedStatus)
+
+      const modelCheck = await window.electronAPI.aiCheckModel('Gemma3:1b')
+      console.log('Model check result:', modelCheck)
+
+      if (!updatedStatus.running) {
+        console.error('Ollama is not running')
+        alert(`Ollama is not running.\n\nError: ${updatedStatus.error || 'Unknown error'}\n\nPlease make sure Ollama is installed and running.`)
+        return
+      }
+
+      if (!modelCheck.available) {
+        console.error('Model not available:', modelCheck.error)
+        alert(`Model 'Gemma3:1b' is not available.\n\nError: ${modelCheck.error}\n\nAvailable models: ${modelCheck.models?.join(', ') || 'none'}\n\nPlease run: ollama pull Gemma3:1b`)
+        return
+      }
+
+      // Test with a simple prompt
+      const testPrompt = 'Say "Hello, Ollama is working!" and nothing else.'
+      console.log('Step 3: Sending test prompt:', testPrompt)
+
+      const response = await callLLM(testPrompt)
+      console.log('Step 4: Received Ollama response:', response)
+
+      alert(`Ollama is working! ✅\n\nResponse: ${response}`)
+    } catch (error) {
+      console.error('Ollama test failed with error:', error)
+      alert(`Ollama test failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [checkStatus, callLLM])
+
+  // Handle document import
+  const handleImportDocument = useCallback(async () => {
+    try {
+      const document = await importDocument()
+      if (document) {
+        // Log segments for debugging
+        console.log('Document imported successfully:', {
+          filePath: document.filePath,
+          textLength: document.text.length,
+          segmentCount: document.segments.length,
+          segments: document.segments,
+        })
+
+        // Phase 3: Detect hierarchy using LLM
+        // First, check Ollama status to ensure it's up-to-date
+        console.log('Checking Ollama status before hierarchy detection...')
+        await checkStatus()
+
+        // Check if Ollama is ready (re-check after status update)
+        const isReady = ollamaStatus.running && ollamaStatus.modelAvailable
+        console.log('Ollama status after check:', {
+          running: ollamaStatus.running,
+          modelAvailable: ollamaStatus.modelAvailable,
+          isReady
+        })
+
+        if (isReady) {
+          try {
+            // Phase 3: Detect hierarchy
+            const hierarchy = await detectHierarchy(document.segments)
+            if (hierarchy) {
+              console.log('Hierarchy detected:', hierarchy)
+              console.log('Hierarchy stats:', aiProgress.stats)
+
+              // Phase 4: Generate node content and create nodes
+              try {
+                const generatedNodes = await generateNodeContent(hierarchy)
+                console.log('Generated nodes:', generatedNodes)
+
+                // Save state for undo before creating nodes
+                saveStateForUndo()
+
+                // Create nodes on canvas
+                const nodeMap: Record<string, NodeType> = {}
+                const hierarchyToNodeId = new Map<string, string>()
+
+                // First pass: create all nodes
+                generatedNodes.forEach((genNode) => {
+                  const nodeId = genNode.node.id
+                  hierarchyToNodeId.set(genNode.hierarchyId, nodeId)
+                  nodeMap[nodeId] = genNode.node
+                })
+
+                // Set all nodes at once
+                setAllNodes(nodeMap)
+
+                // Second pass: create edges between parent-child relationships
+                const edgeMap: Record<string, EdgeType> = {}
+                generatedNodes.forEach((genNode) => {
+                  if (genNode.parentHierarchyId) {
+                    const parentNodeId = hierarchyToNodeId.get(genNode.parentHierarchyId)
+                    const childNodeId = genNode.node.id
+
+                    if (parentNodeId && childNodeId) {
+                      const edgeId = `edge-${parentNodeId}-${childNodeId}`
+                      edgeMap[edgeId] = {
+                        id: edgeId,
+                        from: parentNodeId,
+                        to: childNodeId,
+                      }
+                    }
+                  }
+                })
+
+                // Add edges
+                if (Object.keys(edgeMap).length > 0) {
+                  const currentEdges = { ...edges }
+                  Object.assign(currentEdges, edgeMap)
+                  setAllEdges(currentEdges)
+                }
+
+                markDirty()
+
+                // Show success message
+                const stats = aiProgress.stats
+                if (stats) {
+                  alert(
+                    `Mindmap generated! ✅\n\n` +
+                    `File: ${document.filePath.split(/[/\\]/).pop()}\n` +
+                    `Segments: ${document.segments.length}\n` +
+                    `Nodes created: ${generatedNodes.length}\n` +
+                    `Edges created: ${Object.keys(edgeMap).length}\n` +
+                    `Max depth: ${stats.maxDepth}\n\n` +
+                    `The mindmap is ready! (Layout will be applied in Phase 5)`
+                  )
+                }
+              } catch (error) {
+                console.error('Node content generation failed:', error)
+                // Still show hierarchy success
+                const stats = aiProgress.stats
+                if (stats) {
+                  alert(
+                    `Hierarchy detected, but node generation failed.\n\n` +
+                    `File: ${document.filePath.split(/[/\\]/).pop()}\n` +
+                    `Hierarchy nodes: ${stats.totalNodes}\n\n` +
+                    `Error: ${error instanceof Error ? error.message : String(error)}\n\n` +
+                    `You can still use the hierarchy manually.`
+                  )
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Hierarchy detection failed:', error)
+            // Still show document import success even if hierarchy detection fails
+            alert(
+              `Document imported, but hierarchy detection failed.\n\n` +
+              `File: ${document.filePath.split(/[/\\]/).pop()}\n` +
+              `Segments: ${document.segments.length}\n\n` +
+              `Error: ${error instanceof Error ? error.message : String(error)}\n\n` +
+              `You can still use the segments manually.`
+            )
+          }
+        } else {
+          // Ollama not ready, just show import success
+          const errorMsg = ollamaStatus.error || 'Unknown error'
+          alert(
+            `Document imported!\n\n` +
+            `File: ${document.filePath.split(/[/\\]/).pop()}\n` +
+            `Segments: ${document.segments.length}\n\n` +
+            `Ollama is not ready.\n` +
+            `Running: ${ollamaStatus.running ? 'Yes' : 'No'}\n` +
+            `Model available: ${ollamaStatus.modelAvailable ? 'Yes' : 'No'}\n` +
+            `Error: ${errorMsg}\n\n` +
+            `Please ensure Ollama is running and the model is available.\n` +
+            `Use Shift+T or Ctrl+T to test Ollama connection.`
+          )
+        }
+      }
+    } catch (error) {
+      console.error('Failed to import document:', error)
+      alert(`Failed to import document: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [importDocument, detectHierarchy, checkStatus, ollamaStatus, aiProgress.stats])
+
   // Copy selected node(s)
   const handleCopy = useCallback(() => {
     if (selectedNodeIds.size === 0) return
-    
+
     // Get all selected nodes
     const nodesToCopy = Array.from(selectedNodeIds)
       .map(id => nodes[id])
       .filter((node): node is NodeType => node !== undefined)
-    
+
     if (nodesToCopy.length === 0) return
-    
+
     // Store the nodes to copy
     setCopiedNodes(nodesToCopy)
     // Store the average position for offset calculation
@@ -119,14 +319,14 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   const handlePaste = useCallback(() => {
     if (copiedNodes.length === 0) return
     if (editing) return // Don't paste while editing text
-    
+
     // Get cursor position (use center of viewport if no specific position)
     const stage = stageRef.current
     if (!stage) return
-    
+
     const pointer = stage.getPointerPosition()
     let canvasPos: { x: number; y: number }
-    
+
     if (pointer) {
       // Use actual cursor position
       canvasPos = screenToCanvas(pointer.x, pointer.y)
@@ -135,25 +335,25 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
       const viewportCenter = screenToCanvas(dimensions.width / 2, dimensions.height / 2)
       canvasPos = viewportCenter
     }
-    
+
     // Calculate offset from original position
     const offsetX = canvasPos.x - pasteOffset.x
     const offsetY = canvasPos.y - pasteOffset.y
-    
+
     saveStateForUndo()
-    
+
     // Create new nodes with new IDs, offset from original positions
     const newNodeIds: string[] = []
-    
+
     copiedNodes.forEach(copiedNode => {
       // Create new node at offset position
       const newX = copiedNode.x + offsetX
       const newY = copiedNode.y + offsetY
-      
+
       // Use createNode to add it properly, then update all properties
       const tempNode = createNode(newX, newY)
       const newId = tempNode.id
-      
+
       // Update with all copied properties
       updateNode(newId, {
         title: copiedNode.title,
@@ -163,22 +363,22 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
         collapsed: copiedNode.collapsed,
         titleColor: copiedNode.titleColor,
       })
-      
+
       newNodeIds.push(newId)
     })
-    
+
     // Select all pasted nodes
     if (newNodeIds.length > 0) {
       setSelectedNodeIds(new Set(newNodeIds))
       setSelectedEdgeId(null)
     }
-    
+
     // Update paste offset for next paste (staggered paste)
     setPasteOffset(prev => ({
       x: prev.x + 20,
       y: prev.y + 20,
     }))
-    
+
     markDirty()
   }, [copiedNodes, pasteOffset, editing, stageRef, screenToCanvas, dimensions, saveStateForUndo, createNode, updateNode, markDirty])
 
@@ -186,7 +386,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   const handleExportImage = useCallback(async () => {
     const stage = stageRef.current
     if (!stage) return
-    
+
     try {
       // Get stage data URL (high quality)
       const dataURL = stage.toDataURL({
@@ -194,11 +394,11 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
         mimeType: 'image/png',
         quality: 1,
       })
-      
+
       // Show save dialog
       const filePath = await window.electronAPI.showSaveImageDialog()
       if (!filePath) return // User cancelled
-      
+
       // Save the image
       const result = await window.electronAPI.saveImage(filePath, dataURL)
       if (!result.success) {
@@ -274,12 +474,26 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
           handleExportImage()
           return
         }
+        if (e.key === 'i') {
+          e.preventDefault()
+          handleImportDocument()
+          return
+        }
+        if (e.key === 't' || e.key === 'T') {
+          // Support both Ctrl+T and Shift+T for testing Ollama
+          if (e.shiftKey || (e.ctrlKey || e.metaKey)) {
+            e.preventDefault()
+            console.log('Ollama test triggered via keyboard shortcut')
+            handleTestOllama()
+            return
+          }
+        }
       }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         // Don't delete if editing text
         if (editing) return
-        
+
         if (selectedEdgeId) {
           saveStateForUndo()
           deleteEdge(selectedEdgeId)
@@ -302,7 +516,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedNodeIds, selectedEdgeId, editing, deleteNode, deleteEdge, save, open, newProject, markDirty, handleUndo, handleRedo, saveStateForUndo, clearHistory, handleCopy, handlePaste, handleExportImage])
+  }, [selectedNodeIds, selectedEdgeId, editing, deleteNode, deleteEdge, save, open, newProject, markDirty, handleUndo, handleRedo, saveStateForUndo, clearHistory, handleCopy, handlePaste, handleExportImage, handleImportDocument, handleTestOllama])
 
   // Create node at pointer position
   const createNodeAtPointer = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -315,10 +529,10 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
 
     // Convert screen position to canvas coordinates
     const canvasPos = screenToCanvas(pointer.x, pointer.y)
-    
+
     // Save state for undo
     saveStateForUndo()
-    
+
     // Create node and select it
     const newNode = createNode(canvasPos.x, canvasPos.y)
     setSelectedNodeIds(new Set([newNode.id]))
@@ -348,7 +562,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   // Handle node click with multi-select support
   const handleNodeClick = useCallback((nodeId: string, e?: Konva.KonvaEventObject<MouseEvent>) => {
     const isCtrlClick = e?.evt.ctrlKey || e?.evt.metaKey
-    
+
     if (isCtrlClick) {
       // Toggle selection
       setSelectedNodeIds(prev => {
@@ -405,9 +619,9 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
 
   // Connection drag handlers
   const handleConnectionStart = useCallback((
-    nodeId: string, 
-    position: HandlePosition, 
-    _screenX: number, 
+    nodeId: string,
+    position: HandlePosition,
+    _screenX: number,
     _screenY: number
   ) => {
     const node = nodes[nodeId]
@@ -416,7 +630,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
     // Get the actual handle position from the node
     const handles = getHandlePoints(node)
     const handle = handles[position]
-    
+
     setConnectionDrag({
       fromNodeId: nodeId,
       fromPosition: position,
@@ -433,9 +647,9 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
 
   const handleConnectionMove = useCallback((screenX: number, screenY: number) => {
     if (!connectionDrag) return
-    
+
     const canvasPos = screenToCanvas(screenX, screenY)
-    
+
     // Find closest handle (excluding the source node)
     const closest = findClosestHandleInNodes(
       nodeList,
@@ -475,7 +689,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   const handleNodeDragMove = useCallback((nodeId: string, x: number, y: number) => {
     const node = nodes[nodeId]
     if (!node) return
-    
+
     // Store initial positions on first drag move
     if (!dragStartPositions.current[nodeId]) {
       dragStartPositions.current[nodeId] = { x: node.x, y: node.y }
@@ -489,12 +703,12 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
         })
       }
     }
-    
+
     setDraggingNodes(prev => ({
       ...prev,
       [nodeId]: { x, y }
     }))
-    
+
     // If this node is selected and there are multiple selected nodes, move all selected nodes
     if (selectedNodeIds.has(nodeId) && selectedNodeIds.size > 1) {
       const startPos = dragStartPositions.current[nodeId]
@@ -502,7 +716,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
         // Calculate offset from initial position
         const offsetX = x - startPos.x
         const offsetY = y - startPos.y
-        
+
         // Move all other selected nodes by the same offset
         selectedNodeIds.forEach(id => {
           if (id !== nodeId) {
@@ -523,14 +737,14 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   const handleNodeDragEnd = useCallback((nodeId: string, x: number, y: number) => {
     const node = nodes[nodeId]
     if (!node) return
-    
+
     const startPos = dragStartPositions.current[nodeId]
     if (!startPos) return
-    
+
     // Calculate offset from initial position
     const offsetX = x - startPos.x
     const offsetY = y - startPos.y
-    
+
     // Clear dragging positions
     setDraggingNodes(prev => {
       const next = { ...prev }
@@ -540,17 +754,17 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
       })
       return next
     })
-    
+
     // Clear drag start positions
     selectedNodeIds.forEach(id => {
       delete dragStartPositions.current[id]
     })
-    
+
     saveStateForUndo()
-    
+
     // Move the dragged node
     moveNode(nodeId, x, y)
-    
+
     // If multiple nodes selected, move all of them by the same offset
     if (selectedNodeIds.has(nodeId) && selectedNodeIds.size > 1) {
       selectedNodeIds.forEach(id => {
@@ -562,7 +776,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
         }
       })
     }
-    
+
     markDirty()
   }, [saveStateForUndo, moveNode, markDirty, selectedNodeIds, nodes])
 
@@ -582,7 +796,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
     saveStateForUndo()
     const node = nodes[nodeId]
     if (!node) return
-    
+
     // Get current color index or default to 0
     const TITLE_COLORS = [
       theme.text,        // Default
@@ -591,12 +805,12 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
       colors.yellow,     // Yellow
       colors.pink,
     ]
-    
+
     const currentColor = node.titleColor || TITLE_COLORS[0]
     const currentIndex = TITLE_COLORS.indexOf(currentColor as typeof TITLE_COLORS[number])
     const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % TITLE_COLORS.length
     const nextColor = TITLE_COLORS[nextIndex]
-    
+
     updateNode(nodeId, { titleColor: nextColor })
     markDirty()
   }, [nodes, updateNode, markDirty, saveStateForUndo])
@@ -604,30 +818,30 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   // Calculate editor position for the current editing node or edge
   const getEditorPosition = () => {
     if (!editing) return null
-    
+
     // Handle edge label editing
     if (editing.edgeId) {
       const edge = edges[editing.edgeId]
       if (!edge) return null
-      
+
       const fromNode = nodes[edge.from]
       const toNode = nodes[edge.to]
       if (!fromNode || !toNode) return null
-      
+
       // Calculate midpoint of edge
-      const effectiveFromNode = draggingNodes[edge.from] 
+      const effectiveFromNode = draggingNodes[edge.from]
         ? { ...fromNode, x: draggingNodes[edge.from].x, y: draggingNodes[edge.from].y }
         : fromNode
       const effectiveToNode = draggingNodes[edge.to]
         ? { ...toNode, x: draggingNodes[edge.to].x, y: draggingNodes[edge.to].y }
         : toNode
-      
+
       const [startX, startY, endX, endY] = getArrowPoints(effectiveFromNode, effectiveToNode)
       const midX = (startX + endX) / 2
       const midY = (startY + endY) / 2
-      
+
       const midScreen = canvasToScreen(midX, midY)
-      
+
       return {
         x: midScreen.x,
         y: midScreen.y,
@@ -638,21 +852,21 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
         isTitle: false,
       }
     }
-    
+
     // Handle node field editing
     if (editing.nodeId) {
       const node = nodes[editing.nodeId]
       if (!node) return null
 
       const isTitle = editing.field === 'title'
-      
+
       // Get node position in screen coordinates
       const nodeScreen = canvasToScreen(node.x, node.y)
-      
+
       // Calculate field position within node
       const fieldX = isTitle ? nodeLayout.titleX : nodeLayout.descriptionX
       const fieldY = isTitle ? nodeLayout.titleY : nodeLayout.descriptionY
-      const fieldWidth = isTitle 
+      const fieldWidth = isTitle
         ? node.width - nodeLayout.titleX - spacing[3]
         : node.width - spacing[3] * 2
       const fieldHeight = isTitle
@@ -669,7 +883,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
         isTitle,
       }
     }
-    
+
     return null
   }
 
@@ -678,7 +892,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   // Calculate temp edge endpoint (snapped or current)
   const tempEdgeEnd = useMemo(() => {
     if (!connectionDrag) return null
-    
+
     if (connectionDrag.snappedX !== null && connectionDrag.snappedY !== null) {
       return {
         x: connectionDrag.snappedX,
@@ -686,7 +900,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
         isSnapped: true,
       }
     }
-    
+
     return {
       x: connectionDrag.currentX,
       y: connectionDrag.currentY,
@@ -709,7 +923,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
         {...handlers}
         onClick={handleStageClick}
         onDblClick={handleDblClick}
-        // onContextMenu={handleContextMenu}
+      // onContextMenu={handleContextMenu}
       >
         {/* Edges layer (below nodes) */}
         <Layer>
@@ -717,7 +931,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
             const fromNode = nodes[edge.from]
             const toNode = nodes[edge.to]
             if (!fromNode || !toNode) return null
-            
+
             return (
               <Edge
                 key={edge.id}
@@ -733,7 +947,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
               />
             )
           })}
-          
+
           {/* Temporary edge while dragging */}
           {connectionDrag && tempEdgeEnd && (
             <TempEdge
@@ -749,8 +963,8 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
         {/* Nodes layer (above edges) */}
         <Layer>
           {nodeList.map((node) => (
-            <Node 
-              key={node.id} 
+            <Node
+              key={node.id}
               {...node}
               isSelected={selectedNodeIds.has(node.id)}
               forceShowHandles={isDraggingConnection && node.id !== connectionDrag?.fromNodeId}
@@ -794,6 +1008,16 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
         nodeCount={nodeList.length}
         undoCount={undoCount}
         redoCount={redoCount}
+      />
+
+      {/* AI Generation Progress Modal (Phase 3) */}
+      <AIGenerationModal
+        progress={aiProgress}
+        onClose={() => {
+          if (aiProgress.step === 'complete' || aiProgress.step === 'error') {
+            resetAI()
+          }
+        }}
       />
     </>
   )

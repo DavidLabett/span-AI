@@ -40,5 +40,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   showSelectFolderDialog: () =>
     ipcRenderer.invoke('show-select-folder-dialog'),
+
+  showImportDocumentDialog: () =>
+    ipcRenderer.invoke('show-import-document-dialog'),
+
+  readDocumentFile: (filePath: string) =>
+    ipcRenderer.invoke('read-document-file', filePath),
+
+  extractPDFText: (filePath: string) =>
+    ipcRenderer.invoke('extract-pdf-text', filePath),
+
+  // Ollama/LLM API
+  aiCheckOllama: (baseUrl?: string) =>
+    ipcRenderer.invoke('ai-check-ollama', baseUrl),
+
+  aiCheckModel: (model: string, baseUrl?: string) =>
+    ipcRenderer.invoke('ai-check-model', model, baseUrl),
+
+  aiGetConfig: () =>
+    ipcRenderer.invoke('ai-get-config'),
+
+  aiSetConfig: (config: { baseUrl?: string; model?: string }) =>
+    ipcRenderer.invoke('ai-set-config', config),
+
+  aiCallLLM: (prompt: string, baseUrl?: string, model?: string) =>
+    ipcRenderer.invoke('ai-call-llm', prompt, baseUrl, model),
 })
 
