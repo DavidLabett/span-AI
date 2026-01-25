@@ -38,6 +38,18 @@ interface ElectronAPI {
   aiGetConfig: () => Promise<{ success: boolean; config?: { baseUrl: string; model: string }; error?: string }>
   aiSetConfig: (config: { baseUrl?: string; model?: string }) => Promise<{ success: boolean; error?: string }>
   aiCallLLM: (prompt: string, baseUrl?: string, model?: string) => Promise<{ success: boolean; response?: string; error?: string }>
+  // OCR API
+  aiCallOCR: (imagePath: string, prompt?: string, baseUrl?: string) => Promise<{ success: boolean; response?: string; error?: string }>
+  convertPDFPageToImage: (pdfPath: string, pageNumber: number, outputDir: string) => Promise<{ success: boolean; imagePath?: string; error?: string }>
+  analyzePDFWithOCR: (pdfPath: string, baseUrl?: string) => Promise<{ 
+    success: boolean
+    text?: string
+    pageCount?: number
+    processedPages?: number
+    errors?: string[]
+    error?: string
+  }>
+  onOCRProgress: (callback: (progress: { message: string; current: number; total: number; percentage: number }) => void) => () => void
 }
 
 interface Window {

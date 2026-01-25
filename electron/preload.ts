@@ -3,23 +3,23 @@ import { contextBridge, ipcRenderer } from 'electron'
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('electronAPI', {
   saveProject: (filePath: string, data: unknown) =>
-  ipcRenderer.invoke('save-project', { filePath, data }),
-  
+    ipcRenderer.invoke('save-project', { filePath, data }),
+
   loadProject: (filePath: string) =>
-  ipcRenderer.invoke('load-project', filePath),
-  
+    ipcRenderer.invoke('load-project', filePath),
+
   showSaveDialog: () =>
-  ipcRenderer.invoke('show-save-dialog'),
-  
+    ipcRenderer.invoke('show-save-dialog'),
+
   showOpenDialog: () =>
     ipcRenderer.invoke('show-open-dialog'),
-  
+
   listRecentProjects: () =>
     ipcRenderer.invoke('list-recent-projects'),
-  
+
   showSaveImageDialog: () =>
     ipcRenderer.invoke('show-save-image-dialog'),
-  
+
   saveImage: (filePath: string, imageData: string) =>
     ipcRenderer.invoke('save-image', { filePath, imageData }),
 
@@ -65,5 +65,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   aiCallLLM: (prompt: string, baseUrl?: string, model?: string) =>
     ipcRenderer.invoke('ai-call-llm', prompt, baseUrl, model),
+
+  // OCR API
+  aiCallOCR: (imagePath: string, prompt?: string, baseUrl?: string) =>
+    ipcRenderer.invoke('ai-call-ocr', imagePath, prompt, baseUrl),
+
+  convertPDFPageToImage: (pdfPath: string, pageNumber: number, outputDir: string) =>
+    ipcRenderer.invoke('convert-pdf-page-to-image', pdfPath, pageNumber, outputDir),
+
+  analyzePDFWithOCR: (pdfPath: string, baseUrl?: string) =>
+    ipcRenderer.invoke('analyze-pdf-with-ocr', pdfPath, baseUrl),
+
+  // Listen for OCR progress events
+  onOCRProgress: (callback: (progress: { message: string; current: number; total: number; percentage: number }) => void) => {
+    ipcRenderer.on('ocr-progress', (_event, progress) => callback(progress));
+    // Return cleanup function
+    return () => {
+      ipcRenderer.removeAllListeners('ocr-progress');
+    };
+  },
 })
 

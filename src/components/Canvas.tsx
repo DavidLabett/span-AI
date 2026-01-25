@@ -154,9 +154,9 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   }, [checkStatus, callLLM])
 
   // Handle document import
-  const handleImportDocument = useCallback(async () => {
+  const handleImportDocument = useCallback(async (useOCR: boolean = false) => {
     try {
-      const document = await importDocument()
+      const document = await importDocument(useOCR)
       if (document) {
         // Log segments for debugging
         console.log('Document imported successfully:', {
@@ -496,10 +496,18 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
           handleExportImage()
           return
         }
-        if (e.key === 'i') {
-          e.preventDefault()
-          handleImportDocument()
-          return
+        if (e.key === 'i' || e.key === 'I') {
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            if (e.shiftKey) {
+              // Ctrl+Shift+I or Cmd+Shift+I for OCR import
+              handleImportDocument(true) // Use OCR
+            } else {
+              // Ctrl+I or Cmd+I for regular import
+              handleImportDocument(false) // Use regular extraction
+            }
+            return
+          }
         }
         if (e.key === 't' || e.key === 'T') {
           // Support both Ctrl+T and Shift+T for testing Ollama

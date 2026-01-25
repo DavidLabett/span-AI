@@ -3,6 +3,7 @@ import { readdir, stat } from 'fs/promises';
 import fs from 'fs/promises';
 import path from 'path';
 import http from 'http';
+import { spawn } from 'child_process';
 
 const CONFIG_FILE_NAME = 'config.json';
 
@@ -587,6 +588,549 @@ export function registerIpcHandlers() {
             return {
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to call Ollama',
+            };
+        }
+    });
+
+    // Call DeepSeek-OCR with image (base64 encoded)
+    ipcMain.handle('ai-call-ocr', async (_event, imagePath: string, prompt?: string, baseUrl?: string) => {
+        try {
+            const config = await getConfig();
+            const url = baseUrl || config.ai?.baseUrl || 'http://localhost:11434';
+
+            // Read image file and convert to base64
+            const imageBuffer = await fs.readFile(imagePath);
+
+            // Ensure it's a proper Buffer before converting
+            const buffer = Buffer.isBuffer(imageBuffer) ? imageBuffer : Buffer.from(imageBuffer);
+            const imageBase64 = buffer.toString('base64');
+
+            // Validate base64 format
+            const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+            if (!base64Regex.test(imageBase64)) {
+                return {
+                    success: false,
+                    error: 'Invalid base64 encoding detected',
+                };
+            }
+
+            // DeepSeek-OCR uses /api/chat endpoint with images
+            // According to Ollama docs, images should be base64 strings (not data URLs)
+            const ocrPrompt = prompt || '<|grounding|>Convert the document to markdown preserving structure.';
+
+            const result = await httpRequest(`${url}/api/chat`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    model: 'deepseek-ocr:3b',
+                    messages: [
+                        {
+                            role: 'user',
+                            content: ocrPrompt,
+                            images: [imageBase64], // Just the base64 string, no data URL prefix
+                        },
+                    ],
+                    stream: false,
+                }),
+            });
+
+            if (result.status !== 200) {
+                return {
+                    success: false,
+                    error: result.data.error || `Ollama API error: ${result.status}`,
+                };
+            }
+
+            if (!result.data.message?.content) {
+                return {
+                    success: false,
+                    error: 'Empty response from DeepSeek-OCR',
+                };
+            }
+
+            return {
+                success: true,
+                response: result.data.message.content.trim(),
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to call DeepSeek-OCR',
+            };
+        }
+    });
+
+    // Convert PDF page to image using Python pdf2image
+    ipcMain.handle('convert-pdf-page-to-image', async (_event, pdfPath: string, pageNumber: number, outputDir: string) => {
+        try {
+            await fs.mkdir(outputDir, { recursive: true });
+            const outputPath = path.join(outputDir, `page-${pageNumber}.png`);
+
+            return new Promise((resolve) => {
+                const python = process.platform === 'win32' ? 'python' : 'python3';
+                // Try to find poppler path from common locations
+                const script = `import sys
+import os
+from pdf2image import convert_from_path
+from PIL import Image
+
+pdf_path = sys.argv[1]
+page_num = int(sys.argv[2])
+output_path = sys.argv[3]
+
+# Try to find poppler path
+poppler_path = None
+if len(sys.argv) > 4 and sys.argv[4]:
+    poppler_path = sys.argv[4]
+else:
+    # Check common Windows locations
+    common_paths = [
+        r'C:\Program Files\poppler-25.12.0\Library\bin',  # User's specific installation
+        os.path.join(os.environ.get('LOCALAPPDATA', ''), 'poppler', 'Library', 'bin'),
+        os.path.join('C:', 'poppler', 'Library', 'bin'),
+        os.path.join('C:', 'Program Files', 'poppler', 'Library', 'bin'),
+        os.path.join('C:', 'Program Files', 'poppler-25.12.0', 'Library', 'bin'),
+        os.path.join(os.environ.get('USERPROFILE', ''), 'poppler', 'Library', 'bin'),
+    ]
+    for p in common_paths:
+        if os.path.exists(p) and os.path.exists(os.path.join(p, 'pdftoppm.exe')):
+            poppler_path = p
+            break
+
+try:
+    if poppler_path:
+        images = convert_from_path(pdf_path, first_page=page_num, last_page=page_num, dpi=200, poppler_path=poppler_path)
+    else:
+        images = convert_from_path(pdf_path, first_page=page_num, last_page=page_num, dpi=200)
+    if images:
+        images[0].save(output_path, 'PNG')
+        print(output_path)
+    else:
+        sys.exit(1)
+except Exception as e:
+    print(f"Error: {e}", file=sys.stderr)
+    sys.exit(1)
+`;
+
+                const tempScriptPath = path.join(app.getPath('temp'), `pdf2img-${Date.now()}.py`);
+
+                // Try to find poppler path - check common locations
+                let popplerPath = '';
+                const commonPaths = [
+                    'C:\\Program Files\\poppler-25.12.0\\Library\\bin', // User's specific installation
+                    path.join(process.env.LOCALAPPDATA || '', 'poppler', 'Library', 'bin'),
+                    path.join('C:', 'poppler', 'Library', 'bin'),
+                    path.join('C:', 'Program Files', 'poppler', 'Library', 'bin'),
+                    path.join('C:', 'Program Files', 'poppler-25.12.0', 'Library', 'bin'),
+                    path.join(process.env.USERPROFILE || '', 'poppler', 'Library', 'bin'),
+                ];
+
+                // Check if any common path exists
+                const fsSync = require('fs');
+                for (const p of commonPaths) {
+                    try {
+                        const pdftoppmPath = path.join(p, 'pdftoppm.exe');
+                        if (fsSync.existsSync(pdftoppmPath)) {
+                            popplerPath = p;
+                            console.log(`Found Poppler at: ${popplerPath}`);
+                            break;
+                        }
+                    } catch {
+                        // Continue checking
+                    }
+                }
+                if (!popplerPath) {
+                    console.log('Poppler not found in common paths, will try PATH or let Python script find it');
+                }
+
+                fs.writeFile(tempScriptPath, script).then(() => {
+                    const args = [tempScriptPath, pdfPath, pageNumber.toString(), outputPath];
+                    if (popplerPath) {
+                        args.push(popplerPath);
+                    }
+                    const process = spawn(python, args);
+
+                    let errorOutput = '';
+                    process.stderr.on('data', (data) => {
+                        errorOutput += data.toString();
+                    });
+
+                    process.on('close', async (code) => {
+                        // Clean up temp script
+                        try {
+                            await fs.unlink(tempScriptPath);
+                        } catch {
+                            // Ignore
+                        }
+
+                        if (code === 0) {
+                            // Check if file was created
+                            try {
+                                await fs.access(outputPath);
+                                resolve({
+                                    success: true,
+                                    imagePath: outputPath,
+                                });
+                            } catch {
+                                resolve({
+                                    success: false,
+                                    error: 'Image file was not created',
+                                });
+                            }
+                        } else {
+                            let errorMsg = errorOutput || 'Unknown error';
+                            if (errorMsg.includes('poppler') || errorMsg.includes('Poppler')) {
+                                errorMsg = 'Poppler is not installed or not in PATH. Please install Poppler:\n' +
+                                    'Windows: Download from https://github.com/oschwartz10612/poppler-windows/releases and add to PATH\n' +
+                                    'macOS: brew install poppler\n' +
+                                    'Linux: sudo apt-get install poppler-utils (or equivalent for your distro)\n' +
+                                    'Then install Python package: pip install pdf2image';
+                            } else if (errorMsg.includes('pdf2image')) {
+                                errorMsg = 'pdf2image Python package not found. Install with: pip install pdf2image pillow';
+                            }
+                            resolve({
+                                success: false,
+                                error: `PDF to image conversion failed: ${errorMsg}`,
+                            });
+                        }
+                    });
+                }).catch((err) => {
+                    resolve({
+                        success: false,
+                        error: `Failed to create conversion script: ${err.message}`,
+                    });
+                });
+            });
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to convert PDF page to image',
+            };
+        }
+    });
+
+    // Analyze PDF with DeepSeek-OCR (processes all pages)
+    ipcMain.handle('analyze-pdf-with-ocr', async (_event, pdfPath: string, baseUrl?: string) => {
+        try {
+            const config = await getConfig();
+            const url = baseUrl || config.ai?.baseUrl || 'http://localhost:11434';
+
+            // First, get PDF page count using pdf2json
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const PDFParser = require('pdf2json');
+
+            const pageCount = await new Promise<number>((resolve, reject) => {
+                const pdfParser = new PDFParser(null, 1);
+                pdfParser.on('pdfParser_dataReady', (pdfData: any) => {
+                    resolve((pdfData.Pages || []).length);
+                });
+                pdfParser.on('pdfParser_dataError', (err: any) => {
+                    reject(new Error(`Failed to read PDF: ${err.parserError || 'Unknown error'}`));
+                });
+                pdfParser.loadPDF(pdfPath);
+            });
+
+            // Create temp directory for images
+            const tempDir = path.join(app.getPath('temp'), `pdf-ocr-${Date.now()}`);
+            await fs.mkdir(tempDir, { recursive: true });
+
+            const allPagesText: string[] = [];
+            const errors: string[] = [];
+
+            // Get the main window to send progress updates
+            const mainWindow = BrowserWindow.getAllWindows()[0];
+            const sendProgress = (message: string, current: number, total: number) => {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('ocr-progress', {
+                        message,
+                        current,
+                        total,
+                        percentage: Math.round((current / total) * 100),
+                    });
+                }
+            };
+
+            // Process each page
+            for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+                sendProgress(`Converting page ${pageNum} to image...`, pageNum - 1, pageCount);
+                try {
+                    // Convert PDF page to image
+                    const convertResult = await new Promise<{ success: boolean; imagePath?: string; error?: string }>((resolve) => {
+                        const python = process.platform === 'win32' ? 'python' : 'python3';
+                        // Try to find poppler path from common locations or use environment variable
+                        const script = `import sys
+import os
+from pdf2image import convert_from_path
+from PIL import Image
+
+pdf_path = sys.argv[1]
+page_num = int(sys.argv[2])
+output_path = sys.argv[3]
+
+# Try to find poppler path
+poppler_path = None
+if len(sys.argv) > 4 and sys.argv[4]:
+    poppler_path = sys.argv[4]
+else:
+    # Check common Windows locations
+    common_paths = [
+        r'C:\Program Files\poppler-25.12.0\Library\bin',  # User's specific installation
+        os.path.join(os.environ.get('LOCALAPPDATA', ''), 'poppler', 'Library', 'bin'),
+        os.path.join('C:', 'poppler', 'Library', 'bin'),
+        os.path.join('C:', 'Program Files', 'poppler', 'Library', 'bin'),
+        os.path.join('C:', 'Program Files', 'poppler-25.12.0', 'Library', 'bin'),
+        os.path.join(os.environ.get('USERPROFILE', ''), 'poppler', 'Library', 'bin'),
+    ]
+    for p in common_paths:
+        if os.path.exists(p) and os.path.exists(os.path.join(p, 'pdftoppm.exe')):
+            poppler_path = p
+            break
+
+try:
+    if poppler_path:
+        images = convert_from_path(pdf_path, first_page=page_num, last_page=page_num, dpi=200, poppler_path=poppler_path)
+    else:
+        images = convert_from_path(pdf_path, first_page=page_num, last_page=page_num, dpi=200)
+    if images:
+        images[0].save(output_path, 'PNG')
+        print(output_path)
+    else:
+        sys.exit(1)
+except Exception as e:
+    print(f"Error: {e}", file=sys.stderr)
+    sys.exit(1)
+`;
+                        const tempScriptPath = path.join(app.getPath('temp'), `pdf2img-${Date.now()}-${pageNum}.py`);
+                        const outputPath = path.join(tempDir, `page-${pageNum}.png`);
+
+                        // Try to find poppler path - check common locations
+                        let popplerPath = '';
+                        const commonPaths = [
+                            'C:\\Program Files\\poppler-25.12.0\\Library\\bin', // User's specific installation
+                            path.join(process.env.LOCALAPPDATA || '', 'poppler', 'Library', 'bin'),
+                            path.join('C:', 'poppler', 'Library', 'bin'),
+                            path.join('C:', 'Program Files', 'poppler', 'Library', 'bin'),
+                            path.join('C:', 'Program Files', 'poppler-25.12.0', 'Library', 'bin'),
+                            path.join(process.env.USERPROFILE || '', 'poppler', 'Library', 'bin'),
+                        ];
+
+                        // Check if any common path exists
+                        const fsSync = require('fs');
+                        for (const p of commonPaths) {
+                            try {
+                                const pdftoppmPath = path.join(p, 'pdftoppm.exe');
+                                if (fsSync.existsSync(pdftoppmPath)) {
+                                    popplerPath = p;
+                                    break;
+                                }
+                            } catch {
+                                // Continue checking
+                            }
+                        }
+
+                        fs.writeFile(tempScriptPath, script).then(() => {
+                            const args = [tempScriptPath, pdfPath, pageNum.toString(), outputPath];
+                            if (popplerPath) {
+                                args.push(popplerPath);
+                            }
+                            const process = spawn(python, args);
+
+                            let stdoutOutput = '';
+                            let errorOutput = '';
+
+                            process.stdout.on('data', (data) => {
+                                stdoutOutput += data.toString();
+                            });
+
+                            process.stderr.on('data', (data) => {
+                                errorOutput += data.toString();
+                            });
+
+                            process.on('close', async (code) => {
+                                // Clean up temp script
+                                try {
+                                    await fs.unlink(tempScriptPath);
+                                } catch {
+                                    // Ignore
+                                }
+
+                                if (code === 0) {
+                                    try {
+                                        // Verify the image file exists and has content
+                                        const stats = await fs.stat(outputPath);
+                                        if (stats.size === 0) {
+                                            resolve({ success: false, error: 'Image file is empty' });
+                                            return;
+                                        }
+
+                                        // Verify it's a valid image by checking file signature
+                                        const buffer = await fs.readFile(outputPath);
+                                        const isValidPNG = buffer.length >= 8 &&
+                                            buffer[0] === 0x89 && buffer[1] === 0x50 &&
+                                            buffer[2] === 0x4E && buffer[3] === 0x47;
+
+                                        if (!isValidPNG) {
+                                            resolve({ success: false, error: 'Generated file is not a valid PNG image' });
+                                            return;
+                                        }
+
+                                        resolve({ success: true, imagePath: outputPath });
+                                    } catch (err) {
+                                        resolve({ success: false, error: `Image file check failed: ${err instanceof Error ? err.message : 'Unknown error'}` });
+                                    }
+                                } else {
+                                    let errorMsg = errorOutput || 'Conversion failed';
+                                    if (stdoutOutput) {
+                                        errorMsg += `\nOutput: ${stdoutOutput}`;
+                                    }
+                                    if (errorMsg.includes('poppler') || errorMsg.includes('Poppler') || errorMsg.includes('Unable to get page count')) {
+                                        errorMsg = 'Poppler is not installed or not in PATH. ' +
+                                            'Windows: Download from https://github.com/oschwartz10612/poppler-windows/releases and add bin folder to PATH. ' +
+                                            'macOS: brew install poppler. ' +
+                                            'Linux: sudo apt-get install poppler-utils';
+                                    }
+                                    resolve({ success: false, error: errorMsg });
+                                }
+                            });
+                        }).catch((err) => {
+                            resolve({ success: false, error: err.message });
+                        });
+                    });
+
+                    if (!convertResult.success || !convertResult.imagePath) {
+                        const errorMsg = convertResult.error || 'Conversion failed';
+                        errors.push(`Page ${pageNum}: ${errorMsg}`);
+
+                        // If it's a poppler error, stop processing and return helpful message
+                        if (errorMsg.includes('poppler') || errorMsg.includes('Poppler') || errorMsg.includes('Unable to get page count')) {
+                            return {
+                                success: false,
+                                error: `PDF to image conversion requires Poppler to be installed and in PATH.\n\n` +
+                                    'Installation instructions:\n' +
+                                    'Windows: Download from https://github.com/oschwartz10612/poppler-windows/releases\n' +
+                                    '         Extract and add the "bin" folder to your system PATH\n' +
+                                    '         Then install Python package: pip install pdf2image pillow\n\n' +
+                                    'macOS: brew install poppler\n' +
+                                    '       Then: pip install pdf2image pillow\n\n' +
+                                    'Linux: sudo apt-get install poppler-utils (or equivalent)\n' +
+                                    '       Then: pip install pdf2image pillow',
+                            };
+                        }
+                        continue;
+                    }
+
+                    // Call DeepSeek-OCR
+                    sendProgress(`Running OCR on page ${pageNum}...`, pageNum - 1, pageCount);
+                    const ocrResult = await (async () => {
+                        try {
+                            // Verify image file exists and is readable
+                            if (!convertResult.imagePath) {
+                                throw new Error('Image path is missing');
+                            }
+
+                            const imageStats = await fs.stat(convertResult.imagePath);
+                            if (imageStats.size === 0) {
+                                throw new Error('Image file is empty');
+                            }
+
+                            const imageBuffer = await fs.readFile(convertResult.imagePath);
+                            if (imageBuffer.length === 0) {
+                                throw new Error('Failed to read image file');
+                            }
+
+                            // Convert to base64 - ensure it's a proper Buffer
+                            const buffer = Buffer.isBuffer(imageBuffer) ? imageBuffer : Buffer.from(imageBuffer);
+                            const imageBase64 = buffer.toString('base64');
+
+                            // Validate base64 format (should only contain A-Z, a-z, 0-9, +, /, =)
+                            const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+                            if (!base64Regex.test(imageBase64)) {
+                                throw new Error('Invalid base64 encoding detected');
+                            }
+
+                            if (!imageBase64 || imageBase64.length < 100) {
+                                throw new Error('Base64 encoding appears invalid (too short)');
+                            }
+
+                            // For Ollama, images should be passed as base64 strings without data URL prefix
+                            // According to Ollama docs, images array should contain base64 strings
+                            const result = await httpRequest(`${url}/api/chat`, {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    model: 'deepseek-ocr:3b',
+                                    messages: [{
+                                        role: 'user',
+                                        content: '<|grounding|>Convert the document to markdown preserving structure.',
+                                        images: [imageBase64], // Just the base64 string, no data URL prefix
+                                    }],
+                                    stream: false,
+                                }),
+                            });
+
+                            if (result.status === 200 && result.data.message?.content) {
+                                sendProgress(`OCR completed for page ${pageNum}`, pageNum, pageCount);
+                                return { success: true, response: result.data.message.content.trim() };
+                            } else {
+                                sendProgress(`OCR failed for page ${pageNum}`, pageNum - 1, pageCount);
+                                return { success: false, error: result.data.error || 'OCR failed' };
+                            }
+                        } catch (err) {
+                            sendProgress(`OCR error on page ${pageNum}: ${err instanceof Error ? err.message : 'Unknown error'}`, pageNum - 1, pageCount);
+                            return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+                        }
+                    })();
+
+                    if (ocrResult.success && ocrResult.response) {
+                        allPagesText.push(ocrResult.response);
+                        sendProgress(`Page ${pageNum} processed successfully`, pageNum, pageCount);
+                    } else {
+                        const errorMsg = ocrResult.error || 'OCR failed';
+                        errors.push(`Page ${pageNum}: ${errorMsg}`);
+                        sendProgress(`Page ${pageNum} failed: ${errorMsg}`, pageNum - 1, pageCount);
+                    }
+
+                    // Clean up image file
+                    try {
+                        await fs.unlink(convertResult.imagePath!);
+                    } catch {
+                        // Ignore cleanup errors
+                    }
+                } catch (error) {
+                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                    errors.push(`Page ${pageNum}: ${errorMsg}`);
+                    sendProgress(`Page ${pageNum} error: ${errorMsg}`, pageNum - 1, pageCount);
+                }
+            }
+
+            sendProgress('Combining all pages...', pageCount, pageCount);
+
+            // Clean up temp directory
+            try {
+                await fs.rmdir(tempDir, { recursive: true });
+            } catch {
+                // Ignore cleanup errors
+            }
+
+            if (allPagesText.length === 0) {
+                return {
+                    success: false,
+                    error: `Failed to process any pages. Errors: ${errors.join('; ')}`,
+                };
+            }
+
+            // Combine all pages
+            const combinedText = allPagesText.join('\n\n---\n\n');
+
+            return {
+                success: true,
+                text: combinedText,
+                pageCount: pageCount,
+                processedPages: allPagesText.length,
+                errors: errors.length > 0 ? errors : undefined,
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to analyze PDF with OCR',
             };
         }
     });
