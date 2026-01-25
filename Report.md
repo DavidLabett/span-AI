@@ -65,6 +65,18 @@ Projektet använder flera viktiga bibliotek:
 **Hierarki-builder (`hierarchyBuilder.ts`):**
 - Konverterar platta segment till hierarkiska trädstrukturer
 - Validerar trädstruktur och hanterar edge cases (orphaned nodes, circular dependencies)
+- Beräknar trädstatistik (totala noder, maxdjup, noder per nivå)
+
+**AI-generering (`useAIGeneration.ts`):**
+- Orkestrerar hela genereringsprocessen (hierarkiidentifiering → innehållsgenerering)
+- Hanterar progress-tracking och felhantering
+- Batch-processing av noder för effektiv LLM-användning
+
+**Layout-motor (`layoutEngine.ts`):**
+- Implementerar hierarkisk trädlayout med rekursiv algoritm
+- Beräknar subtree-width för korrekt centrering av föräldrar
+- Hanterar spacing och positionering för läsbarhet
+- Centrerar hela trädet i viewport
 
 ---
 
@@ -74,12 +86,12 @@ Projektet använder flera viktiga bibliotek:
 
 Projektet följer en fasbaserad utvecklingsmetodik med sex huvudfaser:
 
-1. **Fas 1 - Dokumentinput och segmentering:** Implementering av PDF-extraktion och grundläggande segmenteringslogik
-2. **Fas 2 - LLM-integration:** Konfiguration av Ollama-klient och verifiering av modelltillgänglighet
-3. **Fas 3 - Hierarkiidentifiering:** Design av prompts och implementering av trädkonstruktion
-4. **Fas 4 - Nodgenerering:** Generering av titlar och bullet points för varje nod
-5. **Fas 5 - Layout-motor:** Automatisk positionering av noder baserat på hierarki
-6. **Fas 6 - Integration och polish:** UI-integration, felhantering och optimering
+1. **Fas 1 - Dokumentinput och segmentering:** ✅ **KOMPLETT** - Implementering av PDF-extraktion och grundläggande segmenteringslogik. Stöd för PDF, Markdown och textfiler.
+2. **Fas 2 - LLM-integration:** ✅ **KOMPLETT** - Konfiguration av Ollama-klient, verifiering av modelltillgänglighet, och IPC-integration för kommunikation mellan renderer och main process.
+3. **Fas 3 - Hierarkiidentifiering:** ✅ **KOMPLETT** - Design av prompts, implementering av trädkonstruktion, validering av hierarkistruktur, och progress-feedback i UI.
+4. **Fas 4 - Nodgenerering:** ✅ **KOMPLETT** - Generering av titlar och bullet points för varje nod med batch-processing och progress-tracking.
+5. **Fas 5 - Layout-motor:** ✅ **KOMPLETT** - Automatisk positionering av noder baserat på hierarki med hierarkisk trädlayout, centrering i viewport, och kamera-positionering.
+6. **Fas 6 - Integration och polish:** ⏳ **PÅGÅENDE** - UI-integration, felhantering och optimering (delvis implementerad)
 
 ### Teknisk implementation
 
@@ -89,15 +101,18 @@ PDF/text → Extraktion → Segmentering → LLM-analys → Hierarki → Nodgene
 ```
 
 **LLM-användning:**
-- Hierarkiidentifiering: En prompt som ber modellen analysera dokumentet och returnera JSON-trädstruktur
-- Titelgenerering: Kort prompt för att sammanfatta innehåll i 3-5 ord
-- Bullet-extraktion: Prompt för att extrahera 3-5 nyckelbullet points
+- Hierarkiidentifiering: En prompt som ber modellen analysera dokumentet och returnera JSON-trädstruktur. Prompten inkluderar alla segmenterade delar med nivåinformation.
+- Titelgenerering: Kort prompt för att sammanfatta innehåll i 3-7 ord. Använder befintlig titel om den är tillräckligt bra, annars genereras ny.
+- Bullet-extraktion: Prompt för att extrahera 3-5 nyckelbullet points. Parserar olika listformat och begränsar till max 7 bullets per nod.
 
 **Layout-algoritm:**
 - Hierarkisk trädlayout med top-down-approach
 - Root-nod placerad överst i mitten
-- Barn-noder distribuerade horisontellt under föräldern
-- Rekursiv layout för subtrees
+- Barn-noder distribuerade horisontellt under föräldern med konfigurerbart spacing (80px standard)
+- Rekursiv layout för subtrees med beräkning av subtree-width
+- Föräldrar centreras automatiskt ovanför sina barn
+- Vertikal spacing mellan nivåer (120px standard, 200px minimum per nivå)
+- Automatisk centrering av hela trädet i viewport
 
 ### PDF-bibliotek: Utvecklingsprocess och tekniska utmaningar
 
@@ -130,27 +145,36 @@ Under implementeringen av PDF-extraktion testades flera bibliotek innan en lösn
 ### Testning och validering
 
 - Testning med olika dokumenttyper (akademiska artiklar, blogginlägg, teknisk dokumentation)
-- Validering av hierarkiidentifieringens noggrannhet
+- Validering av hierarkiidentifieringens noggrannhet genom LLM-analys
 - Bedömning av genererade titlars och bullet points relevans
 - Utvärdering av layoutens läsbarhet och användbarhet
+- Verifiering av PDF-extraktion med olika PDF-format
+- Testning av Ollama-integration och modelltillgänglighet
+- Validering av edge cases i layout (ensam barn, många barn, djupa träd)
 
 ---
 
 ## Resultat och Diskussion
 
-### Förväntade resultat
+### Implementerade resultat
 
-**Funktionalitet:**
-- Systemet kan importera PDF-dokument och extrahera text med bevarad struktur
-- LLM identifierar korrekt hierarkisk struktur i dokument
-- Varje nod får en koncis titel och relevanta bullet points
-- Noder positioneras automatiskt i läsbar hierarkisk layout
-- Kopplingar (edges) skapas mellan förälder- och barn-noder
+**Funktionalitet (Fas 1-5 komplett):**
+- ✅ Systemet kan importera PDF-dokument och extrahera text med bevarad struktur (font-storlekar, fetstil, positioner)
+- ✅ Stöd för Markdown och textfiler med automatisk segmentering
+- ✅ LLM identifierar hierarkisk struktur i dokument och bygger trädstruktur
+- ✅ Varje nod får en koncis titel (3-7 ord) och relevanta bullet points (3-5 st)
+- ✅ Batch-processing av noder (3 i taget) med progress-tracking
+- ✅ Noder positioneras automatiskt i läsbar hierarkisk layout med konfigurerbart spacing
+- ✅ Kopplingar (edges) skapas automatiskt mellan förälder- och barn-noder
+- ✅ Trädet centreras automatiskt i viewport med korrekt kamera-positionering
+- ✅ Progress-modal visar real-time status under genereringsprocessen
 
 **Användbarhet:**
-- Användare kan snabbt skapa visuella mindmaps från långa dokument
+- Användare kan snabbt skapa visuella mindmaps från långa dokument med ett enkelt import-kommando (Ctrl+I)
 - Den ursprungliga dokumentstrukturen bevaras i den visuella representationen
 - Genererade mindmaps kan redigeras, sparas och exporteras som vanliga projekt
+- Automatisk layout eliminerar behovet av manuell positionering
+- Hierarkisk struktur gör det lätt att navigera och förstå dokumentets organisation
 
 ### Diskussion
 
@@ -159,17 +183,24 @@ Under implementeringen av PDF-extraktion testades flera bibliotek innan en lösn
 - Kostnad: Ingen API-kostnad, men kräver lokal beräkningsresurs
 - Prestanda: `gemma3:1b` är snabb men kan ha begränsningar i kvalitet jämfört med större modeller
 
-**Utmaningar:**
-- Mindre modeller kan ha svårigheter med komplexa dokumentstrukturer
-- Prompt engineering är kritisk för att få bra resultat
-- PDF-extraktion kan förlora strukturell information (formatering, layout)
-- Tekniska utmaningar med PDF-bibliotek: Flera bibliotek testades innan `pdf2json` valdes för Node.js-kompatibilitet i Electron-miljön
+**Utmaningar och lösningar:**
+- **PDF-bibliotek:** Flera bibliotek testades (`pdf-parse`, `pdfjs-dist`) innan `pdf2json` valdes för Node.js-kompatibilitet i Electron-miljön. Lösningen krävde specifik hantering av CommonJS vs ES-moduler.
+- **Segmentering:** Initialt för känslig segmentering som fångade ord-för-ord. Lösning: Förbättrade heuristiker baserade på font-storlek, fetstil och position för att gruppera text i meningsfulla segment.
+- **Layout-algoritm:** Rekursiv layout med korrekt centrering krävde beräkning av subtree-width för varje nod. Implementerad med rekursiv algoritm som först layoutar barn, sedan centrerar föräldrar.
+- **LLM-responser:** Modellen kan returnera olika JSON-format. Lösning: Robust parsing som hanterar markdown code blocks, extra text, och olika format.
+- **Progress-tracking:** Batch-processing kräver korrekt progress-beräkning. Implementerad med detaljerad progress-tracking per batch och total progress.
+- **Mindre modeller:** `gemma3:1b` kan ha svårigheter med komplexa dokumentstrukturer, men fungerar bra för de flesta dokument med rätt prompt engineering.
 
-**Framtida förbättringar:**
-- Stöd för större Ollama-modeller för bättre kvalitet
-- Förbättrad PDF-strukturdetektering
-- Ytterligare layout-algoritmer (force-directed, radial)
-- Interaktiv förfining: regenerera individuella noder
+**Framtida förbättringar (Fas 6 och post-MVP):**
+- ✅ Delvis implementerad: Progress-modal och grundläggande felhantering
+- ⏳ Ytterligare felhantering: Retry-logik, bättre felmeddelanden, fallback-strategier
+- ⏳ Zoom-to-fit funktionalitet för att automatiskt zooma ut för att visa hela trädet
+- ⏳ Stöd för större Ollama-modeller för bättre kvalitet
+- ⏳ Förbättrad PDF-strukturdetektering med bättre användning av font- och positionsdata
+- ⏳ Ytterligare layout-algoritmer (force-directed, radial) som användarval
+- ⏳ Interaktiv förfining: regenerera individuella noder via högerklick-menyn
+- ⏳ Batch-optimering: Cache av LLM-responser för identiskt innehåll
+- ⏳ Stöd för Word-dokument (.docx)
 
 ---
 
@@ -178,13 +209,23 @@ Under implementeringen av PDF-extraktion testades flera bibliotek innan en lösn
 Projektet demonstrerar hur AI kan användas för att bevara dokumentstruktur samtidigt som det skapar ökad användbarhet genom visuell mindmap-generering. Genom att kombinera dokumentanalys, LLM-baserad hierarkiidentifiering och automatisk layout kan systemet transformera linjära dokument till interaktiva visuella representationer.
 
 **Huvudsakliga bidrag:**
-1. Integration av lokal LLM (Ollama) för integritetsbevarande dokumentanalys
-2. Pipeline från PDF-extraktion till visuell mindmap med bevarad hierarki
-3. Automatisk layout-algoritm som positionerar noder baserat på dokumentstruktur
+1. ✅ Integration av lokal LLM (Ollama) för integritetsbevarande dokumentanalys med fullständig IPC-integration
+2. ✅ Komplett pipeline från PDF-extraktion till visuell mindmap med bevarad hierarki (Fas 1-5 implementerad)
+3. ✅ Automatisk layout-algoritm som positionerar noder baserat på dokumentstruktur med rekursiv subtree-beräkning
+4. ✅ Batch-processing system för effektiv LLM-användning med progress-tracking
+5. ✅ Robust felhantering och validering av hierarkistrukturer
+6. ✅ Teknisk lösning för PDF-extraktion i Electron-miljö med `pdf2json`
 
 **Praktisk relevans:**
-Lösningen möjliggör för användare att snabbt skapa visuella översikter av komplexa dokument, vilket ökar förståelsen och användbarheten. Den lokala implementationen säkerställer att känsliga dokument kan bearbetas utan att lämna användarens dator.
+Lösningen möjliggör för användare att snabbt skapa visuella översikter av komplexa dokument, vilket ökar förståelsen och användbarheten. Den lokala implementationen säkerställer att känsliga dokument kan bearbetas utan att lämna användarens dator. Systemet är funktionellt komplett för MVP-scenarier och kan användas för att generera mindmaps från PDF, Markdown och textfiler.
+
+**Tekniska prestationer:**
+- Implementerad pipeline från dokumentimport till visuell mindmap i 5 faser
+- Robust hantering av olika dokumentformat och strukturer
+- Effektiv batch-processing för att minimera LLM-anrop
+- Automatisk layout som eliminerar manuellt arbete
+- Progress-tracking och användarvänlig feedback
 
 **Framtida arbete:**
-Fortsatt utveckling kan fokusera på förbättrad prompt engineering, stöd för fler dokumentformat, och avancerade layout-algoritmer som tar hänsyn till semantisk likhet utöver hierarkisk struktur.
+Fortsatt utveckling kan fokusera på förbättrad prompt engineering för bättre resultat med mindre modeller, stöd för fler dokumentformat (Word, HTML), avancerade layout-algoritmer som tar hänsyn till semantisk likhet utöver hierarkisk struktur, och interaktiva förbättringar som möjlighet att regenerera individuella noder eller justera layout-parametrar.
 

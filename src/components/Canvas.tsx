@@ -17,6 +17,7 @@ import { AIGenerationModal } from './AIGenerationModal'
 import { typography, spacing, theme, colors } from '../theme'
 import { HandlePosition, findClosestHandleInNodes, getHandlePoints, getArrowPoints, SNAP_THRESHOLD } from '../utils/geometry'
 import { Node as NodeType, Edge as EdgeType } from '../types'
+import { layoutHierarchy, getTreeCenter } from '../utils/layoutEngine'
 
 interface EditingState {
   nodeId?: string
@@ -205,8 +206,15 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
                   nodeMap[nodeId] = genNode.node
                 })
 
-                // Set all nodes at once
-                setAllNodes(nodeMap)
+                // Phase 5: Apply hierarchical tree layout
+                const laidOutNodes = layoutHierarchy(
+                  hierarchy,
+                  nodeMap,
+                  hierarchyToNodeId
+                )
+
+                // Set all nodes with layout positions
+                setAllNodes(laidOutNodes)
 
                 // Second pass: create edges between parent-child relationships
                 const edgeMap: Record<string, EdgeType> = {}
@@ -233,6 +241,20 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
                   setAllEdges(currentEdges)
                 }
 
+                // Phase 5: Center tree in viewport and set camera position
+                const treeCenter = getTreeCenter(laidOutNodes)
+
+                // Calculate viewport center
+                const viewportCenterX = dimensions.width / 2
+                const viewportCenterY = dimensions.height / 2
+
+                // Set camera to center the tree
+                // Camera position is the offset from the origin, so we need to center the tree at viewport center
+                const cameraX = viewportCenterX - treeCenter.x
+                const cameraY = viewportCenterY - treeCenter.y
+
+                setCameraPosition({ x: cameraX, y: cameraY })
+
                 markDirty()
 
                 // Show success message
@@ -245,7 +267,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
                     `Nodes created: ${generatedNodes.length}\n` +
                     `Edges created: ${Object.keys(edgeMap).length}\n` +
                     `Max depth: ${stats.maxDepth}\n\n` +
-                    `The mindmap is ready! (Layout will be applied in Phase 5)`
+                    `The mindmap is ready and laid out! ✅`
                   )
                 }
               } catch (error) {
