@@ -16,7 +16,7 @@ Detta är den centrala forskningsfrågan som undersöks i projektet. Genom att k
 
 ### Exempel: LLM (Large Language Models)
 
-Large Language Models är transformer-baserade neurala nätverk som har tränats på stora mängder textdata för att förstå och generera mänskligt språk. I detta projekt används Ollama med modellen `gemma3:1b` - en lokal, lättviktsmodell som körs på användarens dator för att säkerställa integritet och eliminera beroende av externa API:er.
+Large Language Models är transformer-baserade neurala nätverk som har tränats på stora mängder textdata för att förstå och generera mänskligt språk. I detta projekt används Ollama med modellen `Gemma3:1b` - en lokal, lättviktsmodell som körs på användarens dator för att säkerställa integritet och eliminera beroende av externa API:er.
 
 LLM:er kan analysera dokumentstruktur genom att:
 - Identifiera hierarkiska relationer mellan sektioner
