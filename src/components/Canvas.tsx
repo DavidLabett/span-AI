@@ -14,7 +14,9 @@ import { useDocumentImport } from '../hooks/useDocumentImport'
 import { useOllama } from '../hooks/useOllama'
 import { useAIGeneration } from '../hooks/useAIGeneration'
 import { AIGenerationModal } from './AIGenerationModal'
+import { OCRProgressModal } from './OCRProgressModal'
 import { PDFPageSelectionModal } from './PDFPageSelectionModal'
+import { ModelSettingsModal } from './ModelSettingsModal'
 import { typography, spacing, theme, colors } from '../theme'
 import { HandlePosition, findClosestHandleInNodes, getHandlePoints, getArrowPoints, SNAP_THRESHOLD } from '../utils/geometry'
 import { Node as NodeType, Edge as EdgeType } from '../types'
@@ -54,6 +56,8 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   const [editing, setEditing] = useState<EditingState | null>(null)
   const [pdfPageSelection, setPdfPageSelection] = useState<{ pageCount: number; filePath: string } | null>(null)
   const [pendingOCRImport, setPendingOCRImport] = useState<{ filePath: string; selectedPages?: number[] } | null>(null)
+  const [ocrProgress, setOcrProgress] = useState<{ message: string; current: number; total: number; percentage: number } | null>(null)
+  const [showModelSettings, setShowModelSettings] = useState(false)
   const [connectionDrag, setConnectionDrag] = useState<ConnectionDragState | null>(null)
   // Track visual positions of nodes being dragged (for smooth edge updates)
   const [draggingNodes, setDraggingNodes] = useState<Record<string, { x: number; y: number }>>({})
@@ -159,7 +163,17 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   // Handle document import
   const handleImportDocument = useCallback(async (useOCR: boolean = false, selectedPages?: number[]) => {
     try {
-      const document = await importDocument(useOCR, selectedPages)
+      const document = await importDocument(
+        useOCR,
+        selectedPages,
+        undefined,
+        (progress) => {
+          setOcrProgress(progress)
+        }
+      )
+
+      // Clear OCR progress when done
+      setOcrProgress(null)
       if (document) {
         // Log segments for debugging
         console.log('Document imported successfully:', {
@@ -377,8 +391,11 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
       setPendingOCRImport(null)
 
       // Import document with OCR and selected pages
-      importDocument(true, selectedPages, filePath)
+      importDocument(true, selectedPages, filePath, (progress) => {
+        setOcrProgress(progress)
+      })
         .then((document) => {
+          setOcrProgress(null) // Clear progress immediately when OCR completes
           if (document) {
             // Log segments for debugging
             console.log('Document imported successfully:', {
@@ -492,6 +509,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
           }
         })
         .catch((error) => {
+          setOcrProgress(null) // Clear progress on error
           console.error('Failed to import document:', error)
           alert(`Failed to import document: ${error instanceof Error ? error.message : String(error)}`)
         })
@@ -689,6 +707,11 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
             return
           }
         }
+        if ((e.key === 'm' || e.key === 'M') && e.shiftKey) {
+          e.preventDefault()
+          setShowModelSettings(true)
+          return
+        }
         if (e.key === 't' || e.key === 'T') {
           // Support both Ctrl+T and Shift+T for testing Ollama
           if (e.shiftKey || (e.ctrlKey || e.metaKey)) {
@@ -726,7 +749,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedNodeIds, selectedEdgeId, editing, deleteNode, deleteEdge, save, open, newProject, markDirty, handleUndo, handleRedo, saveStateForUndo, clearHistory, handleCopy, handlePaste, handleExportImage, handleImportDocument, handleTestOllama])
+  }, [selectedNodeIds, selectedEdgeId, editing, deleteNode, deleteEdge, save, open, newProject, markDirty, handleUndo, handleRedo, saveStateForUndo, clearHistory, handleCopy, handlePaste, handleExportImage, handleImportDocument, handleImportDocumentWithOCR, handleTestOllama])
 
   // Create node at pointer position
   const createNodeAtPointer = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -1220,6 +1243,19 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
         redoCount={redoCount}
       />
 
+      {/* OCR Progress Modal */}
+      <OCRProgressModal
+        isVisible={ocrProgress !== null}
+        message={ocrProgress?.message || ''}
+        current={ocrProgress?.current || 0}
+        total={ocrProgress?.total || 0}
+        percentage={ocrProgress?.percentage || 0}
+        onCancel={() => {
+          // Note: OCR cancellation would need to be implemented in the main process
+          setOcrProgress(null)
+        }}
+      />
+
       {/* AI Generation Progress Modal (Phase 3) */}
       <AIGenerationModal
         progress={aiProgress}
@@ -1238,6 +1274,12 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
           onCancel={handlePageSelectionCancel}
         />
       )}
+
+      {/* Model Settings Modal */}
+      <ModelSettingsModal
+        isVisible={showModelSettings}
+        onClose={() => setShowModelSettings(false)}
+      />
     </>
   )
 }

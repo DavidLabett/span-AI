@@ -27,7 +27,12 @@ export interface ImportedDocument {
 }
 
 export function useDocumentImport() {
-  const importDocument = useCallback(async (useOCR: boolean = false, selectedPages?: number[], filePath?: string): Promise<ImportedDocument | null> => {
+  const importDocument = useCallback(async (
+    useOCR: boolean = false, 
+    selectedPages?: number[], 
+    filePath?: string,
+    onOCRProgress?: (progress: { message: string; current: number; total: number; percentage: number }) => void
+  ): Promise<ImportedDocument | null> => {
     try {
       // Show file dialog only if filePath is not provided
       let actualFilePath = filePath
@@ -55,6 +60,7 @@ export function useDocumentImport() {
           // Set up progress listener
           const progressCleanup = window.electronAPI.onOCRProgress((progress) => {
             console.log(`[OCR Progress] ${progress.message} (${progress.current}/${progress.total} - ${progress.percentage}%)`)
+            onOCRProgress?.(progress)
           })
 
           try {
