@@ -779,11 +779,7 @@ except Exception as e:
                         } else {
                             let errorMsg = errorOutput || 'Unknown error';
                             if (errorMsg.includes('poppler') || errorMsg.includes('Poppler')) {
-                                errorMsg = 'Poppler is not installed or not in PATH. Please install Poppler:\n' +
-                                    'Windows: Download from https://github.com/oschwartz10612/poppler-windows/releases and add to PATH\n' +
-                                    'macOS: brew install poppler\n' +
-                                    'Linux: sudo apt-get install poppler-utils (or equivalent for your distro)\n' +
-                                    'Then install Python package: pip install pdf2image';
+                                errorMsg = 'Poppler is not installed or not in PATH.';
                             } else if (errorMsg.includes('pdf2image')) {
                                 errorMsg = 'pdf2image Python package not found. Install with: pip install pdf2image pillow';
                             }
@@ -1066,8 +1062,6 @@ except Exception as e:
                                 throw new Error('Base64 encoding appears invalid (too short)');
                             }
 
-                            // For Ollama, images should be passed as base64 strings without data URL prefix
-                            // According to Ollama docs, images array should contain base64 strings
                             const result = await httpRequest(`${url}/api/chat`, {
                                 method: 'POST',
                                 body: JSON.stringify({

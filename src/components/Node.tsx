@@ -276,7 +276,7 @@ export function Node({
           fill={theme.textMuted}
           lineHeight={typography.lineHeight}
           wrap="word"
-          ellipsis={true}
+          ellipsis={false}
           onDblClick={(e) => {
             e.cancelBubble = true
             onEditDescription?.()

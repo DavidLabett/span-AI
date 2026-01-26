@@ -27,8 +27,10 @@ interface LayoutNode {
   x: number
   y: number
   width: number
+  height: number  // node height for vertical spacing
   children: LayoutNode[]
   subtreeWidth: number  // total width of subtree
+  subtreeHeight: number  // total height of subtree (for vertical spacing)
 }
 
 /**
@@ -74,8 +76,9 @@ function layoutNode(
     throw new Error(`Node not found: ${nodeId}`)
   }
 
-  // Calculate Y position based on level
-  const y = startY + (level * config.levelHeight)
+  // Calculate Y position based on level and accumulated heights
+  // For the first level, use startY; for deeper levels, we'll calculate based on parent height
+  const y = startY
 
   // Create layout node data structure
   const result: LayoutNode = {
@@ -84,8 +87,10 @@ function layoutNode(
     x: startX,
     y: y,
     width: node.width,
+    height: node.height,
     children: [],
     subtreeWidth: 0,
+    subtreeHeight: 0,
   }
 
   // If no children, position node and return
@@ -93,10 +98,14 @@ function layoutNode(
     result.x = startX
     result.y = y
     result.subtreeWidth = node.width
+    result.subtreeHeight = node.height
     return result
   }
 
   // Layout children recursively
+  // Calculate Y position for children: parent Y + parent height + vertical spacing
+  const childrenStartY = y + node.height + config.verticalSpacing
+  
   let currentX = startX
   const childLayoutNodes: LayoutNode[] = []
 
@@ -107,7 +116,7 @@ function layoutNode(
       hierarchyToNodeId,
       level + 1,
       currentX,
-      y,
+      childrenStartY,
       config
     )
     childLayoutNodes.push(childLayout)
@@ -123,6 +132,12 @@ function layoutNode(
     : 0
   const subtreeWidth = Math.max(node.width, childrenTotalWidth + childrenSpacing)
 
+  // Calculate total height of subtree (parent height + spacing + max child subtree height)
+  const maxChildSubtreeHeight = childLayoutNodes.length > 0
+    ? Math.max(...childLayoutNodes.map(child => child.subtreeHeight))
+    : 0
+  const subtreeHeight = node.height + config.verticalSpacing + maxChildSubtreeHeight
+
   // Center parent above children
   const childrenStartX = childLayoutNodes[0].x
   const childrenEndX = childLayoutNodes[childLayoutNodes.length - 1].x + 
@@ -133,6 +148,7 @@ function layoutNode(
   result.x = childrenCenterX - (node.width / 2)
   result.y = y
   result.subtreeWidth = subtreeWidth
+  result.subtreeHeight = subtreeHeight
 
   // Update children positions if parent was centered (shift them if needed)
   if (result.x < startX) {

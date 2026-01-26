@@ -15,6 +15,7 @@ import {
 } from '../utils/aiPrompts'
 import { buildHierarchyTree, validateHierarchyTree, getTreeStats, flattenHierarchy } from '../utils/hierarchyBuilder'
 import { useOllama } from './useOllama'
+import { calculateNodeWidth, calculateNodeHeight } from '../utils/textMeasurement'
 
 export interface GenerationProgress {
   step: 'idle' | 'analyzing' | 'generating' | 'complete' | 'error'
@@ -187,15 +188,22 @@ export function useAIGeneration() {
               bullets = [title]
             }
 
+            // Calculate node dimensions based on content
+            // Add bullet character '•' to each bullet point
+            const bulletPrefix = '• '
+            const description = bullets.map(bullet => `${bulletPrefix}${bullet}`).join('\n')
+            const calculatedWidth = calculateNodeWidth(title)
+            const calculatedHeight = calculateNodeHeight(description, calculatedWidth)
+
             // Create Span node (position will be set by layout engine)
             const spanNode: Node = {
               id: `node-${hierarchyNode.id}`,
               x: 0,  // Will be set by layout engine
               y: 0,
-              width: 240,  // Default width
-              height: 160,  // Default height (will be adjusted)
+              width: calculatedWidth,
+              height: calculatedHeight,
               title: title,
-              description: bullets.join('\n'),
+              description: description,
               collapsed: false,
             }
 

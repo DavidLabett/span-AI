@@ -38,9 +38,9 @@ export function useDocumentImport() {
         }
       }
 
-      const ext = filePath.toLowerCase().endsWith('.pdf') ? '.pdf' :
-        filePath.toLowerCase().endsWith('.md') ? '.md' :
-          filePath.toLowerCase().endsWith('.txt') ? '.txt' :
+      const ext = actualFilePath.toLowerCase().endsWith('.pdf') ? '.pdf' :
+        actualFilePath.toLowerCase().endsWith('.md') ? '.md' :
+          actualFilePath.toLowerCase().endsWith('.txt') ? '.txt' :
             '.txt'
 
       let text: string
@@ -58,7 +58,7 @@ export function useDocumentImport() {
           })
 
           try {
-            const ocrResult = await window.electronAPI.analyzePDFWithOCR(filePath, undefined, selectedPages)
+            const ocrResult = await window.electronAPI.analyzePDFWithOCR(actualFilePath, undefined, selectedPages)
 
             // Clean up progress listener
             progressCleanup()
@@ -66,7 +66,7 @@ export function useDocumentImport() {
               const errorMsg = ocrResult.error || 'Failed to extract PDF text with OCR'
               console.error('PDF OCR extraction failed:', {
                 error: errorMsg,
-                filePath,
+                filePath: actualFilePath,
                 processedPages: ocrResult.processedPages,
                 errors: ocrResult.errors,
               })
@@ -115,7 +115,7 @@ export function useDocumentImport() {
             console.error('PDF extraction failed:', {
               error: errorMsg,
               stack: (result as any).stack,
-              filePath,
+              filePath: actualFilePath,
             })
             throw new Error(errorMsg)
           }
