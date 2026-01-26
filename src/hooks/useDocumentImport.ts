@@ -27,12 +27,15 @@ export interface ImportedDocument {
 }
 
 export function useDocumentImport() {
-  const importDocument = useCallback(async (useOCR: boolean = false): Promise<ImportedDocument | null> => {
+  const importDocument = useCallback(async (useOCR: boolean = false, selectedPages?: number[], filePath?: string): Promise<ImportedDocument | null> => {
     try {
-      // Show file dialog
-      const filePath = await window.electronAPI.showImportDocumentDialog()
-      if (!filePath) {
-        return null
+      // Show file dialog only if filePath is not provided
+      let actualFilePath = filePath
+      if (!actualFilePath) {
+        actualFilePath = await window.electronAPI.showImportDocumentDialog()
+        if (!actualFilePath) {
+          return null
+        }
       }
 
       const ext = filePath.toLowerCase().endsWith('.pdf') ? '.pdf' :
@@ -55,7 +58,7 @@ export function useDocumentImport() {
           })
 
           try {
-            const ocrResult = await window.electronAPI.analyzePDFWithOCR(filePath)
+            const ocrResult = await window.electronAPI.analyzePDFWithOCR(filePath, undefined, selectedPages)
 
             // Clean up progress listener
             progressCleanup()
@@ -79,7 +82,7 @@ export function useDocumentImport() {
             const segments = parseDocument(text, '.md') // Parse as markdown since OCR returns markdown
 
             console.log('PDF document imported with OCR:', {
-              filePath,
+              filePath: actualFilePath,
               textLength: text.length,
               segmentCount: segments.length,
               processedPages: ocrResult.processedPages,
@@ -92,9 +95,9 @@ export function useDocumentImport() {
                 textPreview: s.text.substring(0, 50) + '...',
               })),
             })
-
+            
             return {
-              filePath,
+              filePath: actualFilePath,
               text,
               segments,
               metadata,
@@ -106,7 +109,7 @@ export function useDocumentImport() {
           }
         } else {
           // Use regular pdf2json extraction
-          const result = await window.electronAPI.extractPDFText(filePath)
+          const result = await window.electronAPI.extractPDFText(actualFilePath)
           if (!result.success || !result.text) {
             const errorMsg = result.error || 'Failed to extract PDF text'
             console.error('PDF extraction failed:', {
@@ -129,7 +132,7 @@ export function useDocumentImport() {
 
           // Log segments for debugging
           console.log('PDF document imported with improved segmentation:', {
-            filePath,
+            filePath: actualFilePath,
             textLength: text.length,
             segmentCount: segments.length,
             textItemsCount: result.textItems?.length || 0,
@@ -143,9 +146,9 @@ export function useDocumentImport() {
               textPreview: s.text.substring(0, 50) + '...',
             })),
           })
-
+          
           return {
-            filePath,
+            filePath: actualFilePath,
             text,
             segments,
             metadata,
@@ -154,42 +157,42 @@ export function useDocumentImport() {
         }
       } else {
         // Handle text/markdown files
-        const result = await window.electronAPI.readDocumentFile(filePath)
+        const result = await window.electronAPI.readDocumentFile(actualFilePath)
         if (!result.success || !result.content) {
-          console.error('Document file read failed:', {
-            error: result.error,
-            filePath,
-            result,
-          })
-          throw new Error(result.error || 'Failed to read document file')
-        }
-        text = result.content
+        console.error('Document file read failed:', {
+          error: result.error,
+          filePath: actualFilePath,
+          result,
+        })
+        throw new Error(result.error || 'Failed to read document file')
       }
+      text = result.content
+    }
 
-      // Parse document into segments
-      const segments = parseDocument(text, ext)
+    // Parse document into segments
+    const segments = parseDocument(text, ext)
 
-      // Log segments for debugging
-      console.log('Document imported:', {
-        filePath,
-        textLength: text.length,
-        segmentCount: segments.length,
-        segments: segments.map(s => ({
-          id: s.id,
-          level: s.level,
-          type: s.type,
-          fontSize: s.fontSize,
-          isBold: s.isBold,
-          textPreview: s.text.substring(0, 50) + '...',
-        })),
-      })
+    // Log segments for debugging
+    console.log('Document imported:', {
+      filePath: actualFilePath,
+      textLength: text.length,
+      segmentCount: segments.length,
+      segments: segments.map(s => ({
+        id: s.id,
+        level: s.level,
+        type: s.type,
+        fontSize: s.fontSize,
+        isBold: s.isBold,
+        textPreview: s.text.substring(0, 50) + '...',
+      })),
+    })
 
-      return {
-        filePath,
-        text,
-        segments,
-        metadata,
-      }
+    return {
+      filePath: actualFilePath,
+      text,
+      segments,
+      metadata,
+    }
     } catch (error) {
       console.error('Error importing document:', error)
       throw error

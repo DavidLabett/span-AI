@@ -14,6 +14,7 @@ import { useDocumentImport } from '../hooks/useDocumentImport'
 import { useOllama } from '../hooks/useOllama'
 import { useAIGeneration } from '../hooks/useAIGeneration'
 import { AIGenerationModal } from './AIGenerationModal'
+import { PDFPageSelectionModal } from './PDFPageSelectionModal'
 import { typography, spacing, theme, colors } from '../theme'
 import { HandlePosition, findClosestHandleInNodes, getHandlePoints, getArrowPoints, SNAP_THRESHOLD } from '../utils/geometry'
 import { Node as NodeType, Edge as EdgeType } from '../types'
@@ -51,6 +52,8 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set())
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [editing, setEditing] = useState<EditingState | null>(null)
+  const [pdfPageSelection, setPdfPageSelection] = useState<{ pageCount: number; filePath: string } | null>(null)
+  const [pendingOCRImport, setPendingOCRImport] = useState<{ filePath: string; selectedPages?: number[] } | null>(null)
   const [connectionDrag, setConnectionDrag] = useState<ConnectionDragState | null>(null)
   // Track visual positions of nodes being dragged (for smooth edge updates)
   const [draggingNodes, setDraggingNodes] = useState<Record<string, { x: number; y: number }>>({})
@@ -154,9 +157,9 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   }, [checkStatus, callLLM])
 
   // Handle document import
-  const handleImportDocument = useCallback(async (useOCR: boolean = false) => {
+  const handleImportDocument = useCallback(async (useOCR: boolean = false, selectedPages?: number[]) => {
     try {
-      const document = await importDocument(useOCR)
+      const document = await importDocument(useOCR, selectedPages)
       if (document) {
         // Log segments for debugging
         console.log('Document imported successfully:', {
@@ -317,6 +320,183 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
       alert(`Failed to import document: ${error instanceof Error ? error.message : String(error)}`)
     }
   }, [importDocument, detectHierarchy, checkStatus, ollamaStatus, aiProgress.stats])
+
+  // Handle OCR import with page selection
+  const handleImportDocumentWithOCR = useCallback(async () => {
+    try {
+      // Show file dialog first
+      const filePath = await window.electronAPI.showImportDocumentDialog()
+      if (!filePath) {
+        return
+      }
+
+      // Check if it's a PDF
+      const isPDF = filePath.toLowerCase().endsWith('.pdf')
+
+      if (isPDF) {
+        // Get page count from PDF
+        const pdfInfo = await window.electronAPI.extractPDFText(filePath)
+        if (!pdfInfo.success || !pdfInfo.pageCount) {
+          alert(`Failed to read PDF: ${pdfInfo.error || 'Unknown error'}`)
+          return
+        }
+
+        // Show page selection modal
+        setPdfPageSelection({
+          pageCount: pdfInfo.pageCount,
+          filePath,
+        })
+      } else {
+        // Not a PDF, proceed with regular OCR import (no page selection needed)
+        setPendingOCRImport({ filePath })
+      }
+    } catch (error) {
+      console.error('Failed to start OCR import:', error)
+      alert(`Failed to start OCR import: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [])
+
+  // Handle page selection confirmation
+  const handlePageSelectionConfirm = useCallback(async (pages: number[]) => {
+    if (!pdfPageSelection) return
+
+    const filePath = pdfPageSelection.filePath
+    setPdfPageSelection(null)
+    setPendingOCRImport({ filePath, selectedPages: pages })
+  }, [pdfPageSelection])
+
+  // Handle page selection cancellation
+  const handlePageSelectionCancel = useCallback(() => {
+    setPdfPageSelection(null)
+  }, [])
+
+  // Process pending OCR import (after page selection or for non-PDF)
+  useEffect(() => {
+    if (pendingOCRImport) {
+      const { filePath, selectedPages } = pendingOCRImport
+      setPendingOCRImport(null)
+
+      // Import document with OCR and selected pages
+      importDocument(true, selectedPages, filePath)
+        .then((document) => {
+          if (document) {
+            // Log segments for debugging
+            console.log('Document imported successfully:', {
+              filePath: document.filePath,
+              textLength: document.text.length,
+              segmentCount: document.segments.length,
+              segments: document.segments,
+            })
+
+            // Phase 3: Detect hierarchy using LLM
+            // First, check Ollama status to ensure it's up-to-date
+            console.log('Checking Ollama status before hierarchy detection...')
+            checkStatus().then(() => {
+              // Check if Ollama is ready (re-check after status update)
+              const isReady = ollamaStatus.running && ollamaStatus.modelAvailable
+              console.log('Ollama status after check:', {
+                running: ollamaStatus.running,
+                modelAvailable: ollamaStatus.modelAvailable,
+                isReady
+              })
+
+              if (isReady) {
+                // Trigger hierarchy detection
+                detectHierarchy(document.segments)
+                  .then((hierarchy) => {
+                    if (hierarchy) {
+                      console.log('Hierarchy detected:', hierarchy)
+                      // Phase 4: Generate node content
+                      generateNodeContent(hierarchy)
+                        .then((generatedNodes) => {
+                          if (generatedNodes && generatedNodes.length > 0) {
+                            console.log('Node content generated:', generatedNodes.length, 'nodes')
+
+                            // Convert generated nodes to our node format
+                            const nodeMap: Record<string, NodeType> = {}
+                            const hierarchyToNodeId = new Map<string, string>()
+
+                            // First pass: create all nodes
+                            generatedNodes.forEach((genNode) => {
+                              const nodeId = genNode.node.id
+                              hierarchyToNodeId.set(genNode.hierarchyId, nodeId)
+                              nodeMap[nodeId] = genNode.node
+                            })
+
+                            // Phase 5: Apply hierarchical tree layout
+                            const laidOutNodes = layoutHierarchy(
+                              hierarchy,
+                              nodeMap,
+                              hierarchyToNodeId
+                            )
+
+                            // Set all nodes with layout positions
+                            setAllNodes(laidOutNodes)
+
+                            // Second pass: create edges between parent-child relationships
+                            const edgeMap: Record<string, EdgeType> = {}
+                            generatedNodes.forEach((genNode) => {
+                              if (genNode.parentHierarchyId) {
+                                const parentNodeId = hierarchyToNodeId.get(genNode.parentHierarchyId)
+                                const childNodeId = genNode.node.id
+
+                                if (parentNodeId && childNodeId) {
+                                  const edgeId = `edge-${parentNodeId}-${childNodeId}`
+                                  edgeMap[edgeId] = {
+                                    id: edgeId,
+                                    from: parentNodeId,
+                                    to: childNodeId,
+                                    label: '',
+                                  }
+                                }
+                              }
+                            })
+
+                            setAllEdges(edgeMap)
+
+                            // Center the mindmap in the viewport
+                            const center = getTreeCenter(laidOutNodes)
+                            if (center) {
+                              setCameraPosition({ x: center.x, y: center.y })
+                            }
+
+                            markDirty()
+                          }
+                        })
+                        .catch((error) => {
+                          console.error('Node content generation failed:', error)
+                          alert(`Node content generation failed: ${error instanceof Error ? error.message : String(error)}`)
+                        })
+                    }
+                  })
+                  .catch((error) => {
+                    console.error('Hierarchy detection failed:', error)
+                    alert(`Hierarchy detection failed: ${error instanceof Error ? error.message : String(error)}`)
+                  })
+              } else {
+                // Ollama not ready, just show import success
+                const errorMsg = ollamaStatus.error || 'Unknown error'
+                alert(
+                  `Document imported!\n\n` +
+                  `File: ${document.filePath.split(/[/\\]/).pop()}\n` +
+                  `Segments: ${document.segments.length}\n\n` +
+                  `Ollama is not ready.\n` +
+                  `Running: ${ollamaStatus.running ? 'Yes' : 'No'}\n` +
+                  `Model available: ${ollamaStatus.modelAvailable ? 'Yes' : 'No'}\n` +
+                  `Error: ${errorMsg}\n\n` +
+                  `Please ensure Ollama is running and the model is available.\n` +
+                  `Use Shift+T or Ctrl+T to test Ollama connection.`
+                )
+              }
+            })
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to import document:', error)
+          alert(`Failed to import document: ${error instanceof Error ? error.message : String(error)}`)
+        })
+    }
+  }, [pendingOCRImport, importDocument, detectHierarchy, checkStatus, ollamaStatus, generateNodeContent, setAllNodes, setAllEdges, setCameraPosition, markDirty])
 
   // Copy selected node(s)
   const handleCopy = useCallback(() => {
@@ -501,7 +681,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
             e.preventDefault()
             if (e.shiftKey) {
               // Ctrl+Shift+I or Cmd+Shift+I for OCR import
-              handleImportDocument(true) // Use OCR
+              handleImportDocumentWithOCR()
             } else {
               // Ctrl+I or Cmd+I for regular import
               handleImportDocument(false) // Use regular extraction
@@ -1049,6 +1229,15 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
           }
         }}
       />
+
+      {/* PDF Page Selection Modal */}
+      {pdfPageSelection && (
+        <PDFPageSelectionModal
+          pageCount={pdfPageSelection.pageCount}
+          onConfirm={handlePageSelectionConfirm}
+          onCancel={handlePageSelectionCancel}
+        />
+      )}
     </>
   )
 }

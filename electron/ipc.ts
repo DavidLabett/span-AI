@@ -809,7 +809,7 @@ except Exception as e:
     });
 
     // Analyze PDF with DeepSeek-OCR (processes all pages)
-    ipcMain.handle('analyze-pdf-with-ocr', async (_event, pdfPath: string, baseUrl?: string) => {
+    ipcMain.handle('analyze-pdf-with-ocr', async (_event, pdfPath: string, baseUrl?: string, selectedPages?: number[]) => {
         try {
             const config = await getConfig();
             const url = baseUrl || config.ai?.baseUrl || 'http://localhost:11434';
@@ -849,8 +849,23 @@ except Exception as e:
                 }
             };
 
-            // Process each page
-            for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+            // Filter pages to process if specific pages are selected
+            const pagesToProcess = selectedPages && selectedPages.length > 0
+                ? selectedPages.filter((p: number) => p >= 1 && p <= pageCount).sort((a: number, b: number) => a - b)
+                : Array.from({ length: pageCount }, (_, i) => i + 1);
+
+            if (pagesToProcess.length === 0) {
+                return {
+                    success: false,
+                    error: 'No valid pages selected for processing',
+                };
+            }
+
+            sendProgress(`Processing ${pagesToProcess.length} of ${pageCount} pages...`, 0, pagesToProcess.length);
+
+            // Process each selected page
+            let processedIndex = 0;
+            for (const pageNum of pagesToProcess) {
                 sendProgress(`Converting page ${pageNum} to image...`, pageNum - 1, pageCount);
                 try {
                     // Convert PDF page to image
@@ -1019,7 +1034,7 @@ except Exception as e:
                     }
 
                     // Call DeepSeek-OCR
-                    sendProgress(`Running OCR on page ${pageNum}...`, pageNum - 1, pageCount);
+                    sendProgress(`Running OCR on page ${pageNum}...`, processedIndex - 1, pagesToProcess.length);
                     const ocrResult = await (async () => {
                         try {
                             // Verify image file exists and is readable
@@ -1067,25 +1082,25 @@ except Exception as e:
                             });
 
                             if (result.status === 200 && result.data.message?.content) {
-                                sendProgress(`OCR completed for page ${pageNum}`, pageNum, pageCount);
+                                sendProgress(`OCR completed for page ${pageNum}`, processedIndex, pagesToProcess.length);
                                 return { success: true, response: result.data.message.content.trim() };
                             } else {
-                                sendProgress(`OCR failed for page ${pageNum}`, pageNum - 1, pageCount);
+                                sendProgress(`OCR failed for page ${pageNum}`, processedIndex - 1, pagesToProcess.length);
                                 return { success: false, error: result.data.error || 'OCR failed' };
                             }
                         } catch (err) {
-                            sendProgress(`OCR error on page ${pageNum}: ${err instanceof Error ? err.message : 'Unknown error'}`, pageNum - 1, pageCount);
+                            sendProgress(`OCR error on page ${pageNum}: ${err instanceof Error ? err.message : 'Unknown error'}`, processedIndex - 1, pagesToProcess.length);
                             return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
                         }
                     })();
 
                     if (ocrResult.success && ocrResult.response) {
                         allPagesText.push(ocrResult.response);
-                        sendProgress(`Page ${pageNum} processed successfully`, pageNum, pageCount);
+                        sendProgress(`Page ${pageNum} processed successfully`, processedIndex, pagesToProcess.length);
                     } else {
                         const errorMsg = ocrResult.error || 'OCR failed';
                         errors.push(`Page ${pageNum}: ${errorMsg}`);
-                        sendProgress(`Page ${pageNum} failed: ${errorMsg}`, pageNum - 1, pageCount);
+                        sendProgress(`Page ${pageNum} failed: ${errorMsg}`, processedIndex - 1, pagesToProcess.length);
                     }
 
                     // Clean up image file
@@ -1097,11 +1112,11 @@ except Exception as e:
                 } catch (error) {
                     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
                     errors.push(`Page ${pageNum}: ${errorMsg}`);
-                    sendProgress(`Page ${pageNum} error: ${errorMsg}`, pageNum - 1, pageCount);
+                    sendProgress(`Page ${pageNum} error: ${errorMsg}`, processedIndex - 1, pagesToProcess.length);
                 }
             }
 
-            sendProgress('Combining all pages...', pageCount, pageCount);
+            sendProgress('Combining all pages...', pagesToProcess.length, pagesToProcess.length);
 
             // Clean up temp directory
             try {

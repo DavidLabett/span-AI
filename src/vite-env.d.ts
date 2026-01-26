@@ -41,11 +41,12 @@ interface ElectronAPI {
   // OCR API
   aiCallOCR: (imagePath: string, prompt?: string, baseUrl?: string) => Promise<{ success: boolean; response?: string; error?: string }>
   convertPDFPageToImage: (pdfPath: string, pageNumber: number, outputDir: string) => Promise<{ success: boolean; imagePath?: string; error?: string }>
-  analyzePDFWithOCR: (pdfPath: string, baseUrl?: string) => Promise<{ 
+  analyzePDFWithOCR: (pdfPath: string, baseUrl?: string, selectedPages?: number[]) => Promise<{ 
     success: boolean
     text?: string
     pageCount?: number
     processedPages?: number
+    selectedPages?: number
     errors?: string[]
     error?: string
   }>

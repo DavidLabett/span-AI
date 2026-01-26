@@ -73,8 +73,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   convertPDFPageToImage: (pdfPath: string, pageNumber: number, outputDir: string) =>
     ipcRenderer.invoke('convert-pdf-page-to-image', pdfPath, pageNumber, outputDir),
 
-  analyzePDFWithOCR: (pdfPath: string, baseUrl?: string) =>
-    ipcRenderer.invoke('analyze-pdf-with-ocr', pdfPath, baseUrl),
+  analyzePDFWithOCR: (pdfPath: string, baseUrl?: string, selectedPages?: number[]) =>
+    ipcRenderer.invoke('analyze-pdf-with-ocr', pdfPath, baseUrl, selectedPages),
 
   // Listen for OCR progress events
   onOCRProgress: (callback: (progress: { message: string; current: number; total: number; percentage: number }) => void) => {
