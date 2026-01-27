@@ -11,6 +11,7 @@ release/
 .idea/
 *.swp
 *.swo
+.cursor/
 
 # OS
 .DS_Store
@@ -30,3 +31,4 @@ npm-debug.log*
 
 # Plan
 Plan.md
+Report.md
