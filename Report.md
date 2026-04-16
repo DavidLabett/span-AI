@@ -10,7 +10,6 @@ Resultaten visar att systemet framgångsrikt kan transformera linjära dokument 
 
 Projektet demonstrerar att lokal AI kan användas för integritetsbevarande dokumentanalys och visuell transformation, med praktiska begränsningar relaterade till modellstorlek och dokumentkomplexitet. Lösningen är funktionellt komplett för MVP-scenarier och möjliggör snabb skapande av visuella översikter från komplexa dokument.
 
-
 ## Inledning
 
 Span är en lokal, desktop-baserad applikation för visuellt tänkande som bygger på ett oändligt canvas där användare kan skapa noder och kopplingar för att utforska idéer rumsligt. Applikationen är byggd med Electron, React och Konva, och sparar projekt som JSON-filer för maximal portabilitet och integritet.
@@ -30,6 +29,7 @@ Detta är den centrala forskningsfrågan som undersöks i projektet. Genom att k
 Large Language Models är transformer-baserade neurala nätverk som har tränats på stora mängder textdata för att förstå och generera mänskligt språk. I detta projekt används Ollama med modellen `Gemma3:1b` - en lokal, lättviktsmodell som körs på användarens dator för att säkerställa integritet och eliminera beroende av externa API:er.
 
 LLM:er kan analysera dokumentstruktur genom att:
+
 - Identifiera hierarkiska relationer mellan sektioner
 - Extrahera nyckelbegrepp och sammanfatta innehåll
 - Generera strukturerade svar i JSON-format för programmatisk bearbetning
@@ -39,6 +39,7 @@ LLM:er kan analysera dokumentstruktur genom att:
 ### Exempel: Embedding
 
 Embeddings är vektorepresentationer av text som fångar semantisk likhet. Medan embeddings inte är huvudfokus i detta MVP, kan de i framtida iterationer användas för:
+
 - Att gruppera liknande noder
 - Att identifiera tematiskt relaterat innehåll
 - Att förbättra layout genom att placera semantiskt närliggande noder närmare varandra
@@ -59,31 +60,37 @@ Projektet använder flera viktiga bibliotek:
 ### Exempel: Nyckel-delar i koden
 
 **Dokumentparsing (`documentParser.ts`):**
+
 - Segmenterar dokument i logiska enheter (kapitel, sektioner, stycken)
 - Identifierar hierarkiska nivåer baserat på markdown-rubriker eller PDF-formatering
 - Skapar `DocumentSegment`-objekt med metadata om nivå och typ
 
 **LLM-klient (`llmClient.ts`):**
+
 - Hanterar kommunikation med Ollama API
 - Skickar prompts för hierarkiidentifiering och innehållsextraktion
 - Parserar JSON-svar från modellen till strukturerade träd
 
 **Layout-motor (`layoutEngine.ts`):**
+
 - Implementerar hierarkisk trädlayout (top-down, förälder ovanför barn)
 - Beräknar positioner för noder baserat på hierarkisk struktur
 - Hanterar spacing och centrering för läsbarhet
 
 **Hierarki-builder (`hierarchyBuilder.ts`):**
+
 - Konverterar platta segment till hierarkiska trädstrukturer
 - Validerar trädstruktur och hanterar edge cases (orphaned nodes, circular dependencies)
 - Beräknar trädstatistik (totala noder, maxdjup, noder per nivå)
 
 **AI-generering (`useAIGeneration.ts`):**
+
 - Orkestrerar hela genereringsprocessen (hierarkiidentifiering → innehållsgenerering)
 - Hanterar progress-tracking och felhantering
 - Batch-processing av noder för effektiv LLM-användning
 
 **Layout-motor (`layoutEngine.ts`):**
+
 - Implementerar hierarkisk trädlayout med rekursiv algoritm
 - Beräknar subtree-width för korrekt centrering av föräldrar
 - Hanterar spacing och positionering för läsbarhet
@@ -107,16 +114,19 @@ Projektet följer en fasbaserad utvecklingsmetodik med sex huvudfaser:
 ### Teknisk implementation
 
 **Dokumentflöde:**
+
 ```
 PDF/text → Extraktion → Segmentering → LLM-analys → Hierarki → Nodgenerering → Layout → Canvas
 ```
 
 **LLM-användning:**
+
 - Hierarkiidentifiering: En prompt som ber modellen analysera dokumentet och returnera JSON-trädstruktur. Prompten inkluderar alla segmenterade delar med nivåinformation.
 - Titelgenerering: Kort prompt för att sammanfatta innehåll i 3-7 ord. Använder befintlig titel om den är tillräckligt bra, annars genereras ny.
 - Bullet-extraktion: Prompt för att extrahera 3-5 nyckelbullet points. Parserar olika listformat och begränsar till max 7 bullets per nod.
 
 **Layout-algoritm:**
+
 - Hierarkisk trädlayout med top-down-approach
 - Root-nod placerad överst i mitten
 - Barn-noder distribuerade horisontellt under föräldern med konfigurerbart spacing (80px standard)
@@ -130,24 +140,28 @@ PDF/text → Extraktion → Segmentering → LLM-analys → Hierarki → Nodgene
 Under implementeringen av PDF-extraktion testades flera bibliotek innan en lösning hittades som fungerade i Electron-miljön:
 
 **1. pdf-parse (första försöket):**
+
 - Problem: Biblioteket är en ES-modul som inte kunde importeras korrekt i Electron's main process med `require()`
 - Fel: "Class constructor gr cannot be invoked without 'new'"
 - Orsak: Inkompatibilitet mellan ES-moduler och Electron's CommonJS-kontext
 
 **2. pdfjs-dist (Mozilla PDF.js):**
+
 - Problem: Biblioteket försöker använda DOM-API:er som `DOMMatrix` som inte finns tillgängliga i Node.js/Electron main process
 - Fel: "DOMMatrix is not defined"
 - Orsak: Biblioteket är designat för webbläsarmiljöer med DOM-stöd, inte för Node.js
 
 **3. pdf2json (slutlig lösning):**
+
 - Framgång: Biblioteket är designat specifikt för Node.js och kräver inga DOM-API:er
-- Fördelar: 
+- Fördelar:
   - Fungerar direkt i Electron main process utan polyfills
   - Tillhandahåller både textinnehåll och metadata (font-storlekar, positioner)
   - Event-baserad API som passar väl för asynkron bearbetning
 - Begränsningar: Extraherar endast textinnehåll, inte bilder eller komplex layout
 
 **Lärdomar:**
+
 - Electron main process kräver Node.js-kompatibla bibliotek utan DOM-beroenden
 - ES-moduler behöver dynamisk `import()` istället för `require()` i vissa fall
 - Bibliotek designade för webbläsare fungerar inte automatiskt i Node.js-miljöer
@@ -170,6 +184,7 @@ Under implementeringen av PDF-extraktion testades flera bibliotek innan en lösn
 ### Implementerade resultat
 
 **Funktionalitet (Fas 1-5 komplett):**
+
 - ✅ Systemet kan importera PDF-dokument och extrahera text med bevarad struktur (font-storlekar, fetstil, positioner)
 - ✅ Stöd för Markdown och textfiler med automatisk segmentering
 - ✅ LLM identifierar hierarkisk struktur i dokument och bygger trädstruktur
@@ -181,6 +196,7 @@ Under implementeringen av PDF-extraktion testades flera bibliotek innan en lösn
 - ✅ Progress-modal visar real-time status under genereringsprocessen
 
 **Användbarhet:**
+
 - Användare kan snabbt skapa visuella mindmaps från långa dokument med ett enkelt import-kommando (Ctrl+I)
 - Den ursprungliga dokumentstrukturen bevaras i den visuella representationen
 - Genererade mindmaps kan redigeras, sparas och exporteras som vanliga projekt
@@ -190,6 +206,7 @@ Under implementeringen av PDF-extraktion testades flera bibliotek innan en lösn
 ### Diskussion
 
 **Fördelar med lokal LLM:**
+
 - Integritet: All bearbetning sker lokalt, inga data skickas till externa servrar
 - Kostnad: Ingen API-kostnad, men kräver lokal beräkningsresurs
 - Prestanda: `gemma3:1b` är snabb men kan ha begränsningar i kvalitet jämfört med större modeller
@@ -249,6 +266,7 @@ Under utvecklingen implementerades stöd för OCR-baserad PDF-bearbetning med De
 Implementeringen av OCR visar att mindre lokala modeller kan vara användbara för grundläggande OCR-uppgifter, men de introducerar betydande tradeoffs. För dokument med inbäddad text är textbaserad extraktion att föredra både för hastighet och strukturbevarande. OCR bör reserveras för fall där textbaserad extraktion inte är möjlig, och användare bör vara medvetna om att bearbetningstiden ökar avsevärt samt att strukturbevarandet kan vara sämre än för textbaserade dokument.
 
 **Utmaningar och lösningar:**
+
 - **PDF-bibliotek:** Flera bibliotek testades (`pdf-parse`, `pdfjs-dist`) innan `pdf2json` valdes för Node.js-kompatibilitet i Electron-miljön. Lösningen krävde specifik hantering av CommonJS vs ES-moduler.
 - **Segmentering:** Initialt för känslig segmentering som fångade ord-för-ord. Lösning: Förbättrade heuristiker baserade på font-storlek, fetstil och position för att gruppera text i meningsfulla segment.
 - **Layout-algoritm:** Rekursiv layout med korrekt centrering krävde beräkning av subtree-width för varje nod. Implementerad med rekursiv algoritm som först layoutar barn, sedan centrerar föräldrar.
@@ -257,6 +275,7 @@ Implementeringen av OCR visar att mindre lokala modeller kan vara användbara f�
 - **Mindre modeller:** `gemma3:1b` kan ha svårigheter med komplexa dokumentstrukturer, men fungerar bra för de flesta dokument med rätt prompt engineering.
 
 **Framtida förbättringar (Fas 6 och post-MVP):**
+
 - ✅ Delvis implementerad: Progress-modal och grundläggande felhantering
 - ⏳ Ytterligare felhantering: Retry-logik, bättre felmeddelanden, fallback-strategier
 - ⏳ Zoom-to-fit funktionalitet för att automatiskt zooma ut för att visa hela trädet
@@ -274,6 +293,7 @@ Implementeringen av OCR visar att mindre lokala modeller kan vara användbara f�
 Projektet demonstrerar hur AI kan användas för att bevara dokumentstruktur samtidigt som det skapar ökad användbarhet genom visuell mindmap-generering. Genom att kombinera dokumentanalys, LLM-baserad hierarkiidentifiering och automatisk layout kan systemet transformera linjära dokument till interaktiva visuella representationer.
 
 **Huvudsakliga bidrag:**
+
 1. ✅ Integration av lokal LLM (Ollama) för integritetsbevarande dokumentanalys med fullständig IPC-integration
 2. ✅ Komplett pipeline från PDF-extraktion till visuell mindmap med bevarad hierarki (Fas 1-5 implementerad)
 3. ✅ Automatisk layout-algoritm som positionerar noder baserat på dokumentstruktur med rekursiv subtree-beräkning
@@ -285,6 +305,7 @@ Projektet demonstrerar hur AI kan användas för att bevara dokumentstruktur sam
 Lösningen möjliggör för användare att snabbt skapa visuella översikter av komplexa dokument, vilket ökar förståelsen och användbarheten. Den lokala implementationen säkerställer att känsliga dokument kan bearbetas utan att lämna användarens dator. Systemet är funktionellt komplett för MVP-scenarier och kan användas för att generera mindmaps från PDF, Markdown och textfiler.
 
 **Tekniska prestationer:**
+
 - Implementerad pipeline från dokumentimport till visuell mindmap i 5 faser
 - Robust hantering av olika dokumentformat och strukturer
 - Effektiv batch-processing för att minimera LLM-anrop
@@ -294,52 +315,53 @@ Lösningen möjliggör för användare att snabbt skapa visuella översikter av 
 **Framtida arbete:**
 Fortsatt utveckling kan fokusera på förbättrad prompt engineering för bättre resultat med mindre modeller, stöd för fler dokumentformat (Word, HTML), avancerade layout-algoritmer som tar hänsyn till semantisk likhet utöver hierarkisk struktur, och interaktiva förbättringar som möjlighet att regenerera individuella noder eller justera layout-parametrar.
 
-
 # Kodexempel:
 
 ## Dokumentsegmentering - PDF-strukturanalys
+
 // src/utils/documentParser.ts
 export function parsePDFWithStructure(textItems: Array<{
-  text: string
-  fontSize: number
-  isBold: boolean
-  y: number
-  x: number
-  pageNumber: number
+text: string
+fontSize: number
+isBold: boolean
+y: number
+x: number
+pageNumber: number
 }>): DocumentSegment[] {
-  // Gruppera text-items på samma rad (Y-position inom tolerans)
-  const LINE_TOLERANCE = 3
-  const groupedLines: Array<{
-    items: typeof textItems
-    y: number
-    pageNumber: number
-  }> = []
-  
-  // Beräkna font-storleksstatistik för header-detektering
-  const avgFontSize = allFontSizes.reduce((a, b) => a + b, 0) / allFontSizes.length
-  const largeHeaderThreshold = avgFontSize * 1.4  // 40% större än genomsnitt
-  
-  // Strikt header-detektering baserat på font-storlek, fetstil och position
-  const looksLikeHeader = hasValidLength && 
-                         hasNoEndPunctuation && 
-                         (isLargeHeader || 
-                          (isMediumHeader && representativeItem.isBold))
+// Gruppera text-items på samma rad (Y-position inom tolerans)
+const LINE_TOLERANCE = 3
+const groupedLines: Array<{
+items: typeof textItems
+y: number
+pageNumber: number
+}> = []
+
+// Beräkna font-storleksstatistik för header-detektering
+const avgFontSize = allFontSizes.reduce((a, b) => a + b, 0) / allFontSizes.length
+const largeHeaderThreshold = avgFontSize \* 1.4 // 40% större än genomsnitt
+
+// Strikt header-detektering baserat på font-storlek, fetstil och position
+const looksLikeHeader = hasValidLength &&
+hasNoEndPunctuation &&
+(isLargeHeader ||
+(isMediumHeader && representativeItem.isBold))
 }
 
 Förklaring: Grupperar PDF-text i rader, beräknar font-statistik och identifierar rubriker baserat på font-storlek, fetstil och position för att undvika ord-för-ord-segmentering.
 
 ## LLM-prompt för hierarkiidentifiering
+
 // src/utils/aiPrompts.ts
 export function buildHierarchyDetectionPrompt(segments: Array<{
-  id: string; level: number; text: string; type: string
+id: string; level: number; text: string; type: string
 }>): string {
-  const segmentsText = segments
-    .map((seg, idx) => {
-      return `${idx + 1}. [Level ${seg.level}] ${seg.type.toUpperCase()}: ${seg.text.substring(0, 200)}`
-    })
-    .join('\n')
+const segmentsText = segments
+.map((seg, idx) => {
+return `${idx + 1}. [Level ${seg.level}] ${seg.type.toUpperCase()}: ${seg.text.substring(0, 200)}`
+})
+.join('\n')
 
-  return `Analyze this document and identify its hierarchical structure.
+return `Analyze this document and identify its hierarchical structure.
 
 The document has been segmented into the following parts:
 
@@ -347,141 +369,146 @@ ${segmentsText}
 
 Return ONLY valid JSON in this exact format:
 {
-  "title": "Root title summarizing the entire document",
-  "level": 0,
-  "content": "Brief summary",
-  "children": [...]
+"title": "Root title summarizing the entire document",
+"level": 0,
+"content": "Brief summary",
+"children": [...]
 }`
 }
 
 Förklaring: Bygger en prompt som presenterar segmenterade delar med nivåer och ber modellen returnera en JSON-trädstruktur som representerar dokumenthierarkin.
 
 ## Hierarkiträdkonstruktion rekursiv
+
 // src/utils/hierarchyBuilder.ts
 export function buildHierarchyTree(
-  llmResponse: { title: string; level: number; content: string; children: any[] },
-  parentId?: string
+llmResponse: { title: string; level: number; content: string; children: any[] },
+parentId?: string
 ): HierarchyNode {
-  const nodeId = generateHierarchyId()
-  
-  const node: HierarchyNode = {
-    id: nodeId,
-    title: llmResponse.title || 'Untitled',
-    level: llmResponse.level ?? 0,
-    content: llmResponse.content || '',
-    children: [],
-    parentId,
-  }
-  
-  // Rekursivt bearbeta barn-noder
-  if (Array.isArray(llmResponse.children) && llmResponse.children.length > 0) {
-    node.children = llmResponse.children.map((child: any) => 
-      buildHierarchyTree(child, nodeId)  // Rekursivt anrop
-    )
-  }
-  
-  return node
+const nodeId = generateHierarchyId()
+
+const node: HierarchyNode = {
+id: nodeId,
+title: llmResponse.title || 'Untitled',
+level: llmResponse.level ?? 0,
+content: llmResponse.content || '',
+children: [],
+parentId,
+}
+
+// Rekursivt bearbeta barn-noder
+if (Array.isArray(llmResponse.children) && llmResponse.children.length > 0) {
+node.children = llmResponse.children.map((child: any) =>
+buildHierarchyTree(child, nodeId) // Rekursivt anrop
+)
+}
+
+return node
 }
 
 Förklaring: Konverterar LLM:s JSON-svar till en rekursiv trädstruktur med unika ID:n och korrekta parent-referenser.
 
 ## Layout-motor - Hierarkisk trädlayout
+
 // src/utils/layoutEngine.ts
 function layoutNode(
-  hierarchyNode: HierarchyNode,
-  nodeMap: NodeMap,
-  hierarchyToNodeId: Map<string, string>,
-  level: number,
-  startX: number,
-  startY: number,
-  config: LayoutConfig
+hierarchyNode: HierarchyNode,
+nodeMap: NodeMap,
+hierarchyToNodeId: Map<string, string>,
+level: number,
+startX: number,
+startY: number,
+config: LayoutConfig
 ): LayoutNode {
-  // Beräkna Y-position för barn: förälder Y + förälder höjd + vertikal spacing
-  const childrenStartY = y + node.height + config.verticalSpacing
-  
-  // Layouta barn rekursivt
-  for (const childHierarchy of hierarchyNode.children) {
-    const childLayout = layoutNode(
-      childHierarchy,
-      nodeMap,
-      hierarchyToNodeId,
-      level + 1,
-      currentX,
-      childrenStartY,
-      config
-    )
-    childLayoutNodes.push(childLayout)
-    currentX += childLayout.subtreeWidth + config.horizontalSpacing
-  }
-  
-  // Centrera förälder ovanför barn
-  const childrenCenterX = (childrenStartX + childrenEndX) / 2
-  result.x = childrenCenterX - (node.width / 2)
-  
-  return result
+// Beräkna Y-position för barn: förälder Y + förälder höjd + vertikal spacing
+const childrenStartY = y + node.height + config.verticalSpacing
+
+// Layouta barn rekursivt
+for (const childHierarchy of hierarchyNode.children) {
+const childLayout = layoutNode(
+childHierarchy,
+nodeMap,
+hierarchyToNodeId,
+level + 1,
+currentX,
+childrenStartY,
+config
+)
+childLayoutNodes.push(childLayout)
+currentX += childLayout.subtreeWidth + config.horizontalSpacing
+}
+
+// Centrera förälder ovanför barn
+const childrenCenterX = (childrenStartX + childrenEndX) / 2
+result.x = childrenCenterX - (node.width / 2)
+
+return result
 }
 
 Förklaring: Rekursiv algoritm som positionerar noder i hierarkisk trädlayout. Barn placeras horisontellt under föräldern, och föräldern centreras ovanför sina barn.
 
 ## Batch-processing av nodinnehåll
+
 // src/hooks/useAIGeneration.ts
 const generateNodeContent = useCallback(async (
-  hierarchy: HierarchyNode,
-  onProgress?: (current: number, total: number) => void
+hierarchy: HierarchyNode,
+onProgress?: (current: number, total: number) => void
 ): Promise<GeneratedNode[]> => {
-  const allNodes = flattenHierarchy(hierarchy)
-  const BATCH_SIZE = 3  // Process 3 nodes at a time
-  const DELAY_MS = 500   // 500ms delay between batches
-  
-  for (let i = 0; i < allNodes.length; i += BATCH_SIZE) {
-    const batch = allNodes.slice(i, i + BATCH_SIZE)
-    
+const allNodes = flattenHierarchy(hierarchy)
+const BATCH_SIZE = 3 // Process 3 nodes at a time
+const DELAY_MS = 500 // 500ms delay between batches
+
+for (let i = 0; i < allNodes.length; i += BATCH_SIZE) {
+const batch = allNodes.slice(i, i + BATCH_SIZE)
+
     // Process batch in parallel
     const batchPromises = batch.map(async (hierarchyNode) => {
       // Generate title
       const titlePrompt = buildTitleGenerationPrompt(hierarchyNode.content)
       const titleResponse = await callLLM(titlePrompt)
-      
+
       // Generate bullet points
       const bulletPrompt = buildBulletPointPrompt(hierarchyNode.content)
       const bulletResponse = await callLLM(bulletPrompt)
       const bullets = parseBulletPoints(bulletResponse)
-      
+
       // Calculate dynamic node dimensions
       const calculatedWidth = calculateNodeWidth(title)
       const calculatedHeight = calculateNodeHeight(description, calculatedWidth)
-      
+
       return { hierarchyId: hierarchyNode.id, node: spanNode, ... }
     })
-    
+
     const batchResults = await Promise.all(batchPromises)
     generatedNodes.push(...batchResults)
-    
+
     // Update progress
     if (onProgress) {
       onProgress(Math.min(i + BATCH_SIZE, totalNodes), totalNodes)
     }
-    
+
     // Delay between batches to avoid overwhelming the LLM
     if (i + BATCH_SIZE < allNodes.length) {
       await new Promise(resolve => setTimeout(resolve, DELAY_MS))
     }
-  }
+
+}
 }
 
 Förklaring: Bearbetar noder i batchar om 3 parallellt för effektiv LLM-användning. Genererar titlar och bullet points, beräknar dynamiska noddimensioner baserat på innehåll och uppdaterar progress.
 
 ## PDF-extraktion med pdf2json
+
 // electron/ipc.ts
-ipcMain.handle('extract-pdf-text', async (_event, filePath: string) => {
-  const PDFParser = require('pdf2json')
-  const pdfParser = new PDFParser(null, 1)
-  
-  return new Promise((resolve) => {
-    pdfParser.on('pdfParser_dataError', (errData: any) => {
-      resolve({ success: false, error: errData.parserError })
-    })
-    
+ipcMain.handle('extract-pdf-text', async (\_event, filePath: string) => {
+const PDFParser = require('pdf2json')
+const pdfParser = new PDFParser(null, 1)
+
+return new Promise((resolve) => {
+pdfParser.on('pdfParser_dataError', (errData: any) => {
+resolve({ success: false, error: errData.parserError })
+})
+
     pdfParser.on('pdfParser_dataReady', (pdfData: any) => {
       const textItems: Array<{
         text: string
@@ -491,7 +518,7 @@ ipcMain.handle('extract-pdf-text', async (_event, filePath: string) => {
         x: number
         pageNumber: number
       }> = []
-      
+
       pdfData.Pages.forEach((page: any, pageIndex: number) => {
         page.Texts.forEach((textItem: any) => {
           // Gruppera runs (text-delar) till komplett text
@@ -504,14 +531,14 @@ ipcMain.handle('extract-pdf-text', async (_event, filePath: string) => {
               }
             })
             .join('')
-          
+
           // Extrahera font-storlek och fetstil
           const maxFontSize = Math.max(...textItem.R.map((r: any) => r.TS?.[1] || 12))
           const hasBold = textItem.R.some((r: any) => {
             const fontName = r.TS?.[0] || ''
             return fontName.toLowerCase().includes('bold')
           })
-          
+
           textItems.push({
             text: combinedText,
             fontSize: maxFontSize,
@@ -522,28 +549,30 @@ ipcMain.handle('extract-pdf-text', async (_event, filePath: string) => {
           })
         })
       })
-      
+
       resolve({ success: true, text: fullText, textItems, ... })
     })
-    
+
     pdfParser.loadPDF(filePath)
-  })
+
+})
 })
 
 Förklaring: Använder pdf2json för att extrahera text från PDF med strukturell metadata (font-storlek, fetstil, position) som används för bättre segmentering.
 
 ## OCR-integration med progress tracking
+
 // electron/ipc.ts
 ipcMain.handle('analyze-pdf-with-ocr', async (_event, filePath: string, baseUrl?: string, selectedPages?: number[]) => {
-  const pageCount = await getPDFPageCount(filePath)
-  const pagesToProcess = selectedPages || Array.from({ length: pageCount }, (_, i) => i + 1)
-  
-  const results: string[] = []
-  const errors: string[] = []
-  
-  for (let i = 0; i < pagesToProcess.length; i++) {
-    const pageNum = pagesToProcess[i]
-    
+const pageCount = await getPDFPageCount(filePath)
+const pagesToProcess = selectedPages || Array.from({ length: pageCount }, (_, i) => i + 1)
+
+const results: string[] = []
+const errors: string[] = []
+
+for (let i = 0; i < pagesToProcess.length; i++) {
+const pageNum = pagesToProcess[i]
+
     // Skicka progress update till renderer
     mainWindow?.webContents.send('ocr-progress', {
       message: `Processing page ${pageNum}...`,
@@ -551,22 +580,30 @@ ipcMain.handle('analyze-pdf-with-ocr', async (_event, filePath: string, baseUrl?
       total: pagesToProcess.length,
       percentage: Math.round(((i + 1) / pagesToProcess.length) * 100)
     })
-    
+
     try {
       // Konvertera PDF-sida till bild
       const imageBase64 = await convertPDFPageToImage(filePath, pageNum)
-      
+
       // Skicka till DeepSeek-OCR
       const ocrResult = await callOCR(imageBase64, baseUrl)
-      
+
       results.push(ocrResult.text)
     } catch (error) {
       errors.push(`Page ${pageNum}: ${error}`)
     }
-  }
-  
-  // Kombinera alla sidor
-  const combinedText = results.join('\n\n')
-  return { success: true, text: combinedText, ... }
+
+}
+
+// Kombinera alla sidor
+const combinedText = results.join('\n\n')
+return { success: true, text: combinedText, ... }
 })
 
+TODO:
+
+- Enable multiple trees to not make structure too wide
+- Enable adjustment of detail – 1-5 bulletpoints, only keep big concepts etc.
+- Prevent bulletpoints being repetitive/almost saying the same thing
+- Display hotkeys
+- Go back to menu option
