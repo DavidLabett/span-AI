@@ -5,12 +5,15 @@ interface PDFPageSelectionModalProps {
   pageCount: number
   onConfirm: (pages: number[]) => void
   onCancel: () => void
+  description?: string
+  /** When true, page numbers are only checked to be >= 1; the upper bound (pageCount) is not enforced. */
+  ignorePageCountLimit?: boolean
 }
 
 /**
  * Modal for selecting which PDF pages to process with OCR
  */
-export function PDFPageSelectionModal({ pageCount, onConfirm, onCancel }: PDFPageSelectionModalProps) {
+export function PDFPageSelectionModal({ pageCount, onConfirm, onCancel, description, ignorePageCountLimit }: PDFPageSelectionModalProps) {
   const [inputValue, setInputValue] = useState('all')
   const [error, setError] = useState<string | null>(null)
 
@@ -37,7 +40,7 @@ export function PDFPageSelectionModal({ pageCount, onConfirm, onCancel }: PDFPag
           return null
         }
         
-        if (start < 1 || end > pageCount || start > end) {
+        if (start < 1 || start > end || (!ignorePageCountLimit && end > pageCount)) {
           return null
         }
         
@@ -48,7 +51,7 @@ export function PDFPageSelectionModal({ pageCount, onConfirm, onCancel }: PDFPag
         // Single page number
         const pageNum = parseInt(trimmedPart, 10)
         
-        if (isNaN(pageNum) || pageNum < 1 || pageNum > pageCount) {
+        if (isNaN(pageNum) || pageNum < 1 || (!ignorePageCountLimit && pageNum > pageCount)) {
           return null
         }
         
@@ -139,7 +142,7 @@ export function PDFPageSelectionModal({ pageCount, onConfirm, onCancel }: PDFPag
             marginBottom: spacing.lg,
           }}
         >
-          This PDF contains {pageCount} page{pageCount !== 1 ? 's' : ''}. Select which pages to process with OCR.
+          {description ?? `This PDF contains ${pageCount} page${pageCount !== 1 ? 's' : ''}. Select which pages to process with OCR.`}
         </p>
 
         <div style={{ marginBottom: spacing.md }}>

@@ -138,6 +138,20 @@ export function useProject({
     return true
   }, [checkUnsavedChanges, setAllNodes, setAllEdges, setCameraPosition])
 
+  // Load project data directly (no file path, no unsaved-changes prompt — for demo mode)
+  const loadProjectFromData = useCallback((project: Project) => {
+    setAllNodes(project.nodes)
+    setAllEdges(project.edges)
+    setCameraPosition({
+      x: project.meta.canvas.x,
+      y: project.meta.canvas.y,
+      scale: project.meta.canvas.zoom,
+    })
+    setProjectName('Untitled')
+    setCurrentFilePath(null)
+    setIsDirty(false)
+  }, [setAllNodes, setAllEdges, setCameraPosition])
+
   // Mark as dirty when changes occur
   const markDirty = useCallback(() => {
     setIsDirty(true)
@@ -151,6 +165,7 @@ export function useProject({
     saveAs,
     open,
     loadProjectByPath,
+    loadProjectFromData,
     newProject,
     markDirty,
     setProjectName,

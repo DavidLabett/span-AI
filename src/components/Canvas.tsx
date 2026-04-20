@@ -13,6 +13,7 @@ import { useHistory } from '../hooks/useHistory'
 import { useDocumentImport } from '../hooks/useDocumentImport'
 import { useOllama } from '../hooks/useOllama'
 import { useAIGeneration } from '../hooks/useAIGeneration'
+import { useDemo, DEMO_SENTINEL } from '../hooks/useDemo'
 import { AIGenerationModal } from './AIGenerationModal'
 import { OCRProgressModal } from './OCRProgressModal'
 import { PDFPageSelectionModal } from './PDFPageSelectionModal'
@@ -84,13 +85,28 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   const { progress: aiProgress, detectHierarchy, generateNodeContent, reset: resetAI } = useAIGeneration()
 
   // Project persistence
-  const { save, open, loadProjectByPath, newProject, markDirty, isDirty, projectName, currentFilePath } = useProject({
+  const { save, open, loadProjectByPath, loadProjectFromData, newProject, markDirty, isDirty, projectName, currentFilePath } = useProject({
     nodes,
     edges,
     camera,
     setAllNodes,
     setAllEdges,
     setCameraPosition,
+  })
+
+  const {
+    demoAIProgress,
+    setDemoAIProgress,
+    handleDemoImport,
+    onDemoComplete,
+    onDemoPageSelectionConfirm,
+    onDemoPageSelectionCancel,
+    isDemoMode,
+  } = useDemo({
+    setOcrProgress,
+    setPdfPageSelection,
+    loadProjectFromData,
+    clearHistory,
   })
 
   // Load project if initialProjectPath is provided (from WelcomeScreen)
@@ -375,13 +391,20 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
 
     const filePath = pdfPageSelection.filePath
     setPdfPageSelection(null)
+
+    if (filePath === DEMO_SENTINEL && isDemoMode) {
+      onDemoPageSelectionConfirm(pages)
+      return
+    }
+
     setPendingOCRImport({ filePath, selectedPages: pages })
-  }, [pdfPageSelection])
+  }, [pdfPageSelection, isDemoMode, onDemoPageSelectionConfirm])
 
   // Handle page selection cancellation
   const handlePageSelectionCancel = useCallback(() => {
     setPdfPageSelection(null)
-  }, [])
+    onDemoPageSelectionCancel()
+  }, [onDemoPageSelectionCancel])
 
   // Process pending OCR import (after page selection or for non-PDF)
   useEffect(() => {
@@ -711,6 +734,11 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
           setShowModelSettings(true)
           return
         }
+        if (e.key === 'j' || e.key === 'J') {
+          e.preventDefault()
+          handleDemoImport()
+          return
+        }
         if (e.key === 't' || e.key === 'T') {
           // Support both Ctrl+T and Shift+T for testing Ollama
           if (e.shiftKey || (e.ctrlKey || e.metaKey)) {
@@ -748,7 +776,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedNodeIds, selectedEdgeId, editing, deleteNode, deleteEdge, save, open, newProject, markDirty, handleUndo, handleRedo, saveStateForUndo, clearHistory, handleCopy, handlePaste, handleExportImage, handleImportDocument, handleImportDocumentWithOCR, handleTestOllama])
+  }, [selectedNodeIds, selectedEdgeId, editing, deleteNode, deleteEdge, save, open, newProject, markDirty, handleUndo, handleRedo, saveStateForUndo, clearHistory, handleCopy, handlePaste, handleExportImage, handleImportDocument, handleImportDocumentWithOCR, handleTestOllama, handleDemoImport])
 
   // Create node at pointer position
   const createNodeAtPointer = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -1257,8 +1285,16 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
 
       {/* AI Generation Progress Modal (Phase 3) */}
       <AIGenerationModal
-        progress={aiProgress}
+        progress={demoAIProgress ?? aiProgress}
         onClose={() => {
+          if (demoAIProgress) {
+            if (demoAIProgress.step === 'complete') {
+              onDemoComplete()
+            } else {
+              setDemoAIProgress(null)
+            }
+            return
+          }
           if (aiProgress.step === 'complete' || aiProgress.step === 'error') {
             resetAI()
           }
@@ -1271,6 +1307,8 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
           pageCount={pdfPageSelection.pageCount}
           onConfirm={handlePageSelectionConfirm}
           onCancel={handlePageSelectionCancel}
+          description={isDemoMode ? 'Select which pages to simulate processing with OCR.' : undefined}
+          ignorePageCountLimit={isDemoMode}
         />
       )}
 
