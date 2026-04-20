@@ -4,41 +4,53 @@
  * Phase 4: Node Content Generation
  */
 
+const MAX_SEGMENTS = 40
+const MAX_SEGMENT_CHARS = 150
+
 /**
- * Build prompt for hierarchy detection
- * Analyzes document segments and returns a hierarchical tree structure
+ * Build prompt for hierarchy detection.
+ * Caps input to MAX_SEGMENTS segments (headers preferred) and enforces a
+ * compact tree: max depth 3, max 4 children per node, max 12 total nodes.
  */
 export function buildHierarchyDetectionPrompt(segments: Array<{ id: string; level: number; text: string; type: string }>): string {
-  // Format segments for the prompt
-  const segmentsText = segments
+  // Prefer header segments; fill remaining slots with paragraphs
+  const headers = segments.filter(s => s.type === 'chapter' || s.type === 'section')
+  const paragraphs = segments.filter(s => s.type === 'paragraph')
+  const selected = [
+    ...headers,
+    ...paragraphs.slice(0, Math.max(0, MAX_SEGMENTS - headers.length)),
+  ].slice(0, MAX_SEGMENTS)
+
+  const segmentsText = selected
     .map((seg, idx) => {
-      return `${idx + 1}. [Level ${seg.level}] ${seg.type.toUpperCase()}: ${seg.text.substring(0, 200)}${seg.text.length > 200 ? '...' : ''}`
+      const preview = seg.text.length > MAX_SEGMENT_CHARS
+        ? seg.text.substring(0, MAX_SEGMENT_CHARS) + '...'
+        : seg.text
+      return `${idx + 1}. [Level ${seg.level}] ${seg.type.toUpperCase()}: ${preview}`
     })
     .join('\n')
 
-  return `Analyze this document and identify its hierarchical structure.
+  return `Analyze this document and return a compact JSON hierarchy for a mindmap.
 
-The document has been segmented into the following parts:
+Document segments:
 
 ${segmentsText}
-
-Your task is to analyze these segments and return a JSON tree structure representing the document's hierarchy.
 
 Return ONLY valid JSON in this exact format:
 {
   "title": "Root title summarizing the entire document",
   "level": 0,
-  "content": "Brief summary of the document",
+  "content": "One-sentence summary of the document",
   "children": [
     {
-      "title": "Chapter/Section title",
+      "title": "Section title",
       "level": 1,
-      "content": "Content or summary of this section",
+      "content": "Key idea of this section in one sentence",
       "children": [
         {
           "title": "Subsection title",
           "level": 2,
-          "content": "Content of subsection",
+          "content": "Key idea of this subsection in one sentence",
           "children": []
         }
       ]
@@ -47,34 +59,31 @@ Return ONLY valid JSON in this exact format:
 }
 
 Rules:
-- The root node should have level 0
-- Each child should have a level one higher than its parent
-- Use the segment text to infer titles (summarize in 3-7 words)
-- Group related segments under appropriate parent nodes
-- Keep the hierarchy logical and meaningful
-- If a segment seems like a header, use it as a title
-- If a segment is content, include it in the "content" field or as a child
-- Return ONLY the JSON object, no markdown, no code blocks, no explanations
+- Root node has level 0; each child level is parent level + 1
+- Maximum depth: 3 levels (levels 0, 1, 2)
+- Maximum 4 children per node
+- Maximum 12 nodes total across the entire tree
+- Merge minor or closely related sections into their parent instead of creating new nodes
+- Titles: 3-7 words summarising the section
+- Content: one concise sentence per node
+- Return ONLY the JSON object — no markdown, no code blocks, no explanations
 
 JSON:`
 }
 
 /**
- * Parse LLM response into HierarchyNode structure
+ * Parse LLM response into HierarchyNode structure.
  * Handles various response formats (JSON, markdown code blocks, etc.)
  */
 export function parseHierarchyResponse(response: string): { title: string; level: number; content: string; children: any[] } | null {
   try {
-    // Remove markdown code blocks if present
     let cleaned = response.trim()
 
-    // Remove ```json or ``` markers
     cleaned = cleaned.replace(/^```json\s*/i, '')
     cleaned = cleaned.replace(/^```\s*/i, '')
     cleaned = cleaned.replace(/```\s*$/i, '')
     cleaned = cleaned.trim()
 
-    // Try to find JSON object in the response
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
     if (jsonMatch) {
       cleaned = jsonMatch[0]
@@ -82,12 +91,10 @@ export function parseHierarchyResponse(response: string): { title: string; level
 
     const parsed = JSON.parse(cleaned)
 
-    // Validate structure
     if (typeof parsed !== 'object' || parsed === null) {
       return null
     }
 
-    // Ensure required fields exist
     return {
       title: parsed.title || 'Untitled',
       level: typeof parsed.level === 'number' ? parsed.level : 0,
@@ -102,155 +109,90 @@ export function parseHierarchyResponse(response: string): { title: string; level
 }
 
 /**
- * Build prompt for title generation
- * Phase 4: Node Content Generation
+ * Build prompt that generates both the node title and 2-3 bullet points
+ * in a single LLM call. Replaces the separate title + bullet prompts.
  */
-export function buildTitleGenerationPrompt(content: string): string {
-  // Truncate content if too long (to avoid token limits)
-  const maxContentLength = 500
+export function buildNodeContentPrompt(content: string, existingTitle?: string): string {
+  const maxContentLength = 600
   const truncatedContent = content.length > maxContentLength
     ? content.substring(0, maxContentLength) + '...'
     : content
 
-  return `Summarize the following text in 3-7 words. Return ONLY the title, nothing else, no quotes, no explanation:
+  const titleHint = existingTitle
+    ? `The section is titled "${existingTitle}". You may keep or improve this title.\n`
+    : ''
 
-${truncatedContent}
+  return `${titleHint}Write a short title and 2-3 key bullet points for the following text.
 
-Title:`
-}
-
-/**
- * Build prompt for bullet point extraction
- * Phase 4: Node Content Generation
- */
-export function buildBulletPointPrompt(content: string): string {
-  // Truncate content if too long
-  const maxContentLength = 800
-  const truncatedContent = content.length > maxContentLength
-    ? content.substring(0, maxContentLength) + '...'
-    : content
-
-  return `Extract 3-5 key bullet points from the following text. Each bullet point must be a complete, short sentence that makes sense on its own.
+Format your response EXACTLY like this (no extra text before or after):
+TITLE: <3-7 word title>
+- <concise sentence>
+- <concise sentence>
+- <concise sentence>
 
 Rules:
-- Write complete sentences (subject + verb + object)
-- Keep sentences concise but grammatically complete
-- Each sentence should be self-contained and meaningful
-- Do not truncate or cut off sentences mid-thought
-- Return ONLY the bullet points themselves
-- Do NOT include any introductory text, explanations, or meta-commentary
-- Do NOT write phrases like "here are X bullet points" or "extracted from the text"
-- Do NOT number the bullets or use dashes/markers
-- Return ONLY the bullet points, one per line, no numbering, no dashes, no markdown, just plain text sentences
+- TITLE line first, then bullet lines starting with "- "
+- Title: 3-7 words, no punctuation at the end
+- Each bullet: one short, self-contained sentence
+- Return ONLY the formatted block above — no intro, no commentary
 
 Text:
-${truncatedContent}
-
-Bullet points:`
+${truncatedContent}`
 }
 
 /**
- * Parse bullet points from LLM response
- * Handles various formats (numbered lists, dashes, etc.)
+ * Parse the response from buildNodeContentPrompt into title + bullets.
  */
-export function parseBulletPoints(response: string): string[] {
-  // Remove common meta-commentary patterns
-  let cleanedResponse = response
-    // Remove introductory phrases
-    .replace(/^(here are|here is|below are|below is|the following|extracted|key points?|bullet points?)[:\s]*/i, '')
-    .replace(/^(these are|these is|following are|following is)[:\s]*/i, '')
-    .replace(/^(from the text|from the content|from the document)[:\s]*/i, '')
-    .replace(/^(extracted from|based on|derived from)[:\s]*/i, '')
-    .trim()
+export function parseNodeContent(response: string): { title: string; bullets: string[] } {
+  const lines = response.trim().split('\n').map(l => l.trim()).filter(l => l.length > 0)
 
-  const lines = cleanedResponse
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0)
-
+  let title = ''
   const bullets: string[] = []
 
   for (const line of lines) {
-    // Skip meta-commentary lines
-    if (/^(here are|here is|below are|below is|the following|extracted|key points?|bullet points?|these are|following are|from the text|from the content)/i.test(line)) {
-      continue
-    }
-
-    // Remove common list markers
-    let cleaned = line
-      .replace(/^[-*•]\s+/, '')  // Remove dashes, asterisks, bullets
-      .replace(/^\d+[.)]\s+/, '')  // Remove numbered lists (1. 2. etc.)
-      .replace(/^\([a-z0-9]+\)\s+/, '')  // Remove lettered lists (a) b) etc.)
-      .trim()
-
-    // Skip if empty or too short (less than 3 characters)
-    if (cleaned.length < 3) continue
-
-    // Skip if it looks like meta-commentary
-    if (/^(here are|here is|below are|below is|the following|extracted|key points?|bullet points?|these are|following are|from the text|from the content|extracted from|based on|derived from)/i.test(cleaned)) {
-      continue
-    }
-
-    // Ensure sentence ends with punctuation (if it doesn't, try to find complete sentence)
-    // If the line doesn't end with punctuation, check if it's a complete thought
-    if (!/[.!?]$/.test(cleaned)) {
-      // Try to find the end of the sentence in the original line
-      const sentenceMatch = line.match(/^[-*•\d.)\s]*([^.!?]*[.!?])/)
-      if (sentenceMatch) {
-        cleaned = sentenceMatch[1].trim()
-      }
-    }
-
-    // Only add if it's a meaningful sentence (at least 5 characters)
-    if (cleaned.length >= 5) {
-      bullets.push(cleaned)
-    }
-
-    // Limit to 7 bullets max
-    if (bullets.length >= 7) break
-  }
-
-  // Ensure at least one bullet point
-  if (bullets.length === 0 && response.trim().length > 0) {
-    // Fallback: use first complete sentence
-    const sentences = response.trim().split(/[.!?]+/).filter(s => s.trim().length >= 5)
-    if (sentences.length > 0) {
-      bullets.push(sentences[0].trim())
-    } else {
-      // Last resort: use first meaningful part
-      const fallback = response.trim().substring(0, 100).trim()
-      if (fallback.length >= 5) {
-        bullets.push(fallback)
+    if (!title && line.toUpperCase().startsWith('TITLE:')) {
+      title = line.replace(/^TITLE:\s*/i, '').trim()
+    } else if (line.startsWith('- ')) {
+      const bullet = line.replace(/^-\s+/, '').trim()
+      if (bullet.length >= 5 && bullets.length < 3) {
+        bullets.push(bullet)
       }
     }
   }
 
-  return bullets
+  // Fallback: if no TITLE line, use first non-bullet line
+  if (!title) {
+    const firstNonBullet = lines.find(l => !l.startsWith('- '))
+    title = firstNonBullet
+      ? firstNonBullet.replace(/^TITLE:\s*/i, '').trim()
+      : 'Untitled'
+  }
+
+  // Fallback: if no bullets, use title as single bullet
+  if (bullets.length === 0) {
+    bullets.push(title)
+  }
+
+  return { title: cleanTitle(title), bullets }
 }
 
 /**
- * Clean and truncate title
- * Enforces max length and removes unwanted characters
+ * Clean and truncate title.
+ * Enforces max length and removes unwanted characters.
  */
 export function cleanTitle(title: string, maxLength: number = 50): string {
   let cleaned = title.trim()
 
-  // Remove quotes if present
   cleaned = cleaned.replace(/^["']|["']$/g, '')
-
-  // Remove trailing punctuation if it's just a period
   cleaned = cleaned.replace(/^\.+$/, '')
 
-  // Truncate if too long
   if (cleaned.length > maxLength) {
     cleaned = cleaned.substring(0, maxLength - 3) + '...'
   }
 
-  // Fallback if empty
   if (cleaned.length === 0) {
     cleaned = 'Untitled'
   }
 
   return cleaned
 }
-

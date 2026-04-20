@@ -5,13 +5,12 @@
 
 import { useState, useCallback } from 'react'
 import { HierarchyNode, DocumentSegment, Node } from '../types'
-import { 
-  buildHierarchyDetectionPrompt, 
+import {
+  buildHierarchyDetectionPrompt,
   parseHierarchyResponse,
-  buildTitleGenerationPrompt,
-  buildBulletPointPrompt,
-  parseBulletPoints,
-  cleanTitle
+  buildNodeContentPrompt,
+  parseNodeContent,
+  cleanTitle,
 } from '../utils/aiPrompts'
 import { buildHierarchyTree, validateHierarchyTree, getTreeStats, flattenHierarchy } from '../utils/hierarchyBuilder'
 import { useOllama } from './useOllama'
@@ -72,8 +71,8 @@ export function useAIGeneration() {
         progress: 30,
       }))
 
-      // Call LLM
-      const response = await callLLM(prompt)
+      // Hierarchy JSON can be moderately large — cap at 1500 tokens
+      const response = await callLLM(prompt, { maxTokens: 1500 })
       
       setProgress(prev => ({
         ...prev,
@@ -152,58 +151,51 @@ export function useAIGeneration() {
     })
 
     const generatedNodes: GeneratedNode[] = []
-    const BATCH_SIZE = 3  // Process 3 nodes at a time
-    const DELAY_MS = 500   // 500ms delay between batches
+    const BATCH_SIZE = 5  // Process 5 nodes in parallel
 
     try {
       for (let i = 0; i < allNodes.length; i += BATCH_SIZE) {
         const batch = allNodes.slice(i, i + BATCH_SIZE)
-        
-        // Process batch in parallel
+
         const batchPromises = batch.map(async (hierarchyNode) => {
           try {
-            // Generate title if needed (use existing title if it's good, otherwise generate)
-            let title = hierarchyNode.title || 'Untitled'
-            if (title.length > 50 || title === 'Untitled' || hierarchyNode.content.length > 0) {
-              // Generate a better title from content
-              const titlePrompt = buildTitleGenerationPrompt(
-                hierarchyNode.content || hierarchyNode.title || ''
+            const hasContent = hierarchyNode.content && hierarchyNode.content.trim().length > 0
+            const existingTitleIsGood = hierarchyNode.title &&
+              hierarchyNode.title !== 'Untitled' &&
+              hierarchyNode.title.length <= 50
+
+            let title: string
+            let bullets: string[]
+
+            if (hasContent) {
+              // Single LLM call for both title and bullets
+              const prompt = buildNodeContentPrompt(
+                hierarchyNode.content,
+                existingTitleIsGood ? hierarchyNode.title : undefined
               )
-              const titleResponse = await callLLM(titlePrompt)
-              title = cleanTitle(titleResponse.trim() || title)
+              const response = await callLLM(prompt, { maxTokens: 300 })
+              const parsed = parseNodeContent(response)
+              title = parsed.title
+              bullets = parsed.bullets
             } else {
-              title = cleanTitle(title)
-            }
-
-            // Generate bullet points from content
-            let bullets: string[] = []
-            if (hierarchyNode.content && hierarchyNode.content.trim().length > 0) {
-              const bulletPrompt = buildBulletPointPrompt(hierarchyNode.content)
-              const bulletResponse = await callLLM(bulletPrompt)
-              bullets = parseBulletPoints(bulletResponse)
-            }
-
-            // If no bullets generated, use title as single bullet
-            if (bullets.length === 0) {
+              // No content — use the existing title directly, no LLM call needed
+              title = cleanTitle(hierarchyNode.title || 'Untitled')
               bullets = [title]
             }
 
-            // Calculate node dimensions based on content
-            // Add bullet character '•' to each bullet point
             const bulletPrefix = '• '
-            const description = bullets.map(bullet => `${bulletPrefix}${bullet}`).join('\n')
+            const description = bullets.map(b => `${bulletPrefix}${b}`).join('\n')
             const calculatedWidth = calculateNodeWidth(title)
             const calculatedHeight = calculateNodeHeight(description, calculatedWidth)
 
-            // Create Span node (position will be set by layout engine)
             const spanNode: Node = {
               id: `node-${hierarchyNode.id}`,
-              x: 0,  // Will be set by layout engine
+              x: 0,
               y: 0,
               width: calculatedWidth,
               height: calculatedHeight,
-              title: title,
-              description: description,
+              title,
+              description,
               collapsed: false,
             }
 
@@ -214,7 +206,6 @@ export function useAIGeneration() {
             } as GeneratedNode
           } catch (error) {
             console.error(`Failed to generate content for node ${hierarchyNode.id}:`, error)
-            // Fallback: create node with basic content
             return {
               hierarchyId: hierarchyNode.id,
               node: {
@@ -235,24 +226,18 @@ export function useAIGeneration() {
         const batchResults = await Promise.all(batchPromises)
         generatedNodes.push(...batchResults)
 
-        // Update progress
         const current = Math.min(i + BATCH_SIZE, totalNodes)
         const progressPercent = Math.round((current / totalNodes) * 100)
-        
+
         setProgress(prev => ({
           ...prev,
-          message: `Generating content for node ${current} of ${totalNodes}...`,
+          message: `Generating nodes ${current} / ${totalNodes}`,
           progress: progressPercent,
           nodesGenerated: current,
         }))
 
         if (onProgress) {
           onProgress(current, totalNodes)
-        }
-
-        // Delay between batches (except for the last batch)
-        if (i + BATCH_SIZE < allNodes.length) {
-          await new Promise(resolve => setTimeout(resolve, DELAY_MS))
         }
       }
 

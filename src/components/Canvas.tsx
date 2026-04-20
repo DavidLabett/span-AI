@@ -161,10 +161,9 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
   }, [checkStatus, callLLM])
 
   // Handle document import
-  const handleImportDocument = useCallback(async (useOCR: boolean = false, selectedPages?: number[]) => {
+  const handleImportDocument = useCallback(async (selectedPages?: number[]) => {
     try {
       const document = await importDocument(
-        useOCR,
         selectedPages,
         undefined,
         (progress) => {
@@ -349,7 +348,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
 
       if (isPDF) {
         // Get page count from PDF
-        const pdfInfo = await window.electronAPI.extractPDFText(filePath)
+        const pdfInfo = await window.electronAPI.getPDFPageCount(filePath)
         if (!pdfInfo.success || !pdfInfo.pageCount) {
           alert(`Failed to read PDF: ${pdfInfo.error || 'Unknown error'}`)
           return
@@ -391,7 +390,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
       setPendingOCRImport(null)
 
       // Import document with OCR and selected pages
-      importDocument(true, selectedPages, filePath, (progress) => {
+      importDocument(selectedPages, filePath, (progress) => {
         setOcrProgress(progress)
       })
         .then((document) => {
@@ -702,7 +701,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
               handleImportDocumentWithOCR()
             } else {
               // Ctrl+I or Cmd+I for regular import
-              handleImportDocument(false) // Use regular extraction
+              handleImportDocument()
             }
             return
           }

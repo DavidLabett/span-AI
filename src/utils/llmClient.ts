@@ -4,8 +4,9 @@
  */
 
 export interface LLMConfig {
-  baseUrl: string  // default: 'http://localhost:11434'
-  model: string    // default: 'Gemma3:1b'
+  baseUrl: string   // default: 'http://localhost:11434'
+  model: string     // default: 'Gemma3:1b'
+  maxTokens?: number // maps to Ollama options.num_predict; limits output length
 }
 
 export interface OllamaResponse {
@@ -119,7 +120,8 @@ export async function callLLM(
       body: JSON.stringify({
         model: config.model,
         prompt: prompt,
-        stream: false,  // Non-streaming for simplicity
+        stream: false,
+        ...(config.maxTokens !== undefined && { options: { num_predict: config.maxTokens } }),
       }),
     })
 

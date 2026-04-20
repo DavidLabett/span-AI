@@ -320,19 +320,16 @@ export function registerIpcHandlers() {
         }
     });
 
-    // Extract text from PDF file (runs in main process)
-    ipcMain.handle('extract-pdf-text', async (_event, filePath: string) => {
+    // Get page count from a PDF file (lightweight — no text extraction)
+    ipcMain.handle('get-pdf-page-count', async (_event, filePath: string) => {
         try {
-            // Use pdf2json which is designed for Node.js and doesn't require DOM APIs
             // eslint-disable-next-line @typescript-eslint/no-require-imports
             const PDFParser = require('pdf2json');
 
             return new Promise((resolve) => {
                 const pdfParser = new PDFParser(null, 1);
 
-                // Set up event handlers
                 pdfParser.on('pdfParser_dataError', (errData: any) => {
-                    console.error('PDF parsing error:', errData);
                     resolve({
                         success: false,
                         error: `PDF parsing error: ${errData.parserError || 'Unknown error'}`,
@@ -340,124 +337,19 @@ export function registerIpcHandlers() {
                 });
 
                 pdfParser.on('pdfParser_dataReady', (pdfData: any) => {
-                    try {
-                        // Extract text with structure information from all pages
-                        let fullText = '';
-                        const pages = pdfData.Pages || [];
-                        const textItems: Array<{
-                            text: string;
-                            fontSize: number;
-                            isBold: boolean;
-                            y: number;
-                            x: number;
-                            pageNumber: number;
-                        }> = [];
-
-                        pages.forEach((page: any, pageIndex: number) => {
-                            if (page.Texts && Array.isArray(page.Texts)) {
-                                page.Texts.forEach((textItem: any) => {
-                                    // Extract text from all runs
-                                    const textRuns = textItem.R || [];
-                                    let combinedText = '';
-                                    let maxFontSize = 0;
-                                    let hasBold = false;
-
-                                    textRuns.forEach((run: any) => {
-                                        const rawText = run.T || '';
-                                        try {
-                                            const decodedText = decodeURIComponent(rawText);
-                                            combinedText += decodedText;
-                                        } catch {
-                                            combinedText += rawText;
-                                        }
-
-                                        // Extract font size (S property often contains font size)
-                                        // sw (stroke width) can also indicate font size
-                                        const fontSize = run.S || textItem.sw || 12;
-                                        if (fontSize > maxFontSize) {
-                                            maxFontSize = fontSize;
-                                        }
-
-                                        // Check for bold (TS array or font name containing "Bold")
-                                        // TS[0] is often font size, TS[1] might be font name or style info
-                                        if (run.TS && Array.isArray(run.TS) && run.TS.length > 1) {
-                                            const styleInfo = run.TS[1];
-                                            if (typeof styleInfo === 'string' && styleInfo.includes('Bold')) {
-                                                hasBold = true;
-                                            } else if (typeof styleInfo === 'object' && styleInfo) {
-                                                // Sometimes TS[1] is an object with font info
-                                                const fontName = styleInfo.fontName || styleInfo.F || '';
-                                                if (typeof fontName === 'string' && fontName.includes('Bold')) {
-                                                    hasBold = true;
-                                                }
-                                            }
-                                        }
-
-                                        // Also check textItem level bold indicators
-                                        if (textItem.sw && textItem.sw > 14) {
-                                            hasBold = true; // Heuristic: larger stroke width might indicate bold
-                                        }
-                                    });
-
-                                    if (combinedText.trim().length > 0) {
-                                        textItems.push({
-                                            text: combinedText,
-                                            fontSize: maxFontSize || textItem.sw || 12,
-                                            isBold: hasBold || (textItem.sw && textItem.sw > 14), // Heuristic: larger stroke width might indicate bold
-                                            y: textItem.y || 0,
-                                            x: textItem.x || 0,
-                                            pageNumber: pageIndex + 1,
-                                        });
-                                    }
-                                });
-
-                                // Also create simple text version for backward compatibility
-                                const pageText = page.Texts
-                                    .map((text: any) => {
-                                        const rawText = text.R?.[0]?.T || '';
-                                        try {
-                                            return decodeURIComponent(rawText);
-                                        } catch {
-                                            return rawText;
-                                        }
-                                    })
-                                    .join(' ');
-                                fullText += pageText + '\n\n';
-                            }
-                        });
-
-                        resolve({
-                            success: true,
-                            text: fullText.trim(),
-                            textItems: textItems, // Include structured data
-                            pageCount: pages.length,
-                            metadata: {
-                                title: pdfData.Meta?.Title,
-                                author: pdfData.Meta?.Author,
-                                subject: pdfData.Meta?.Subject,
-                            },
-                            filePath,
-                        });
-                    } catch (error) {
-                        console.error('Error processing PDF data:', error);
-                        resolve({
-                            success: false,
-                            error: error instanceof Error ? error.message : String(error),
-                        });
-                    }
+                    resolve({
+                        success: true,
+                        pageCount: (pdfData.Pages || []).length,
+                    });
                 });
 
-                // Load and parse the PDF file
                 pdfParser.loadPDF(filePath);
             });
         } catch (error) {
-            console.error('PDF extraction error:', error);
             const errorMessage = error instanceof Error ? error.message : String(error);
-            const errorStack = error instanceof Error ? error.stack : undefined;
             return {
                 success: false,
                 error: errorMessage,
-                stack: errorStack,
             };
         }
     });
@@ -551,19 +443,24 @@ export function registerIpcHandlers() {
     });
 
     // Call Ollama API (main generation endpoint - will be used in Phase 3)
-    ipcMain.handle('ai-call-llm', async (_event, prompt: string, baseUrl?: string, model?: string) => {
+    ipcMain.handle('ai-call-llm', async (_event, prompt: string, baseUrl?: string, model?: string, maxTokens?: number) => {
         try {
             const config = await getConfig();
             const url = baseUrl || config.ai?.baseUrl || 'http://localhost:11434';
             const modelName = model || config.ai?.model || 'Gemma3:1b';
 
+            const body: Record<string, unknown> = {
+                model: modelName,
+                prompt: prompt,
+                stream: false,
+            };
+            if (maxTokens !== undefined) {
+                body.options = { num_predict: maxTokens };
+            }
+
             const result = await httpRequest(`${url}/api/generate`, {
                 method: 'POST',
-                body: JSON.stringify({
-                    model: modelName,
-                    prompt: prompt,
-                    stream: false,
-                }),
+                body: JSON.stringify(body),
             });
 
             if (result.status !== 200) {

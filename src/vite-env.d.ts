@@ -23,21 +23,13 @@ interface ElectronAPI {
   showSelectFolderDialog: () => Promise<string | null>
   showImportDocumentDialog: () => Promise<string | null>
   readDocumentFile: (filePath: string) => Promise<{ success: boolean; content?: string; extension?: string; filePath?: string; error?: string }>
-  extractPDFText: (filePath: string) => Promise<{ 
-    success: boolean; 
-    text?: string; 
-    textItems?: Array<{ text: string; fontSize: number; isBold: boolean; y: number; x: number; pageNumber: number }>;
-    pageCount?: number; 
-    metadata?: { title?: string; author?: string; subject?: string }; 
-    filePath?: string; 
-    error?: string 
-  }>
+  getPDFPageCount: (filePath: string) => Promise<{ success: boolean; pageCount?: number; error?: string }>
   // Ollama/LLM API
   aiCheckOllama: (baseUrl?: string) => Promise<{ success: boolean; running: boolean; error?: string }>
   aiCheckModel: (model: string, baseUrl?: string) => Promise<{ success: boolean; available: boolean; models?: string[]; error?: string }>
   aiGetConfig: () => Promise<{ success: boolean; config?: { baseUrl: string; model: string }; error?: string }>
   aiSetConfig: (config: { baseUrl?: string; model?: string }) => Promise<{ success: boolean; error?: string }>
-  aiCallLLM: (prompt: string, baseUrl?: string, model?: string) => Promise<{ success: boolean; response?: string; error?: string }>
+  aiCallLLM: (prompt: string, baseUrl?: string, model?: string, maxTokens?: number) => Promise<{ success: boolean; response?: string; error?: string }>
   // OCR API
   aiCallOCR: (imagePath: string, prompt?: string, baseUrl?: string) => Promise<{ success: boolean; response?: string; error?: string }>
   convertPDFPageToImage: (pdfPath: string, pageNumber: number, outputDir: string) => Promise<{ success: boolean; imagePath?: string; error?: string }>

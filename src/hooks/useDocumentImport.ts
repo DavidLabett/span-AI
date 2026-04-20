@@ -16,31 +16,23 @@ export interface ImportedDocument {
     author?: string
     subject?: string
   }
-  pdfTextItems?: Array<{
-    text: string
-    fontSize: number
-    isBold: boolean
-    y: number
-    x: number
-    pageNumber: number
-  }>
 }
 
 export function useDocumentImport() {
   const importDocument = useCallback(async (
-    useOCR: boolean = false, 
-    selectedPages?: number[], 
+    selectedPages?: number[],
     filePath?: string,
     onOCRProgress?: (progress: { message: string; current: number; total: number; percentage: number }) => void
   ): Promise<ImportedDocument | null> => {
     try {
       // Show file dialog only if filePath is not provided
-      let actualFilePath = filePath
+      let actualFilePath: string | undefined = filePath
       if (!actualFilePath) {
-        actualFilePath = await window.electronAPI.showImportDocumentDialog()
-        if (!actualFilePath) {
+        const chosen = await window.electronAPI.showImportDocumentDialog()
+        if (!chosen) {
           return null
         }
+        actualFilePath = chosen
       }
 
       const ext = actualFilePath.toLowerCase().endsWith('.pdf') ? '.pdf' :
@@ -51,154 +43,79 @@ export function useDocumentImport() {
       let text: string
       let metadata: ImportedDocument['metadata'] | undefined
 
-      // Handle PDF files
+      // Handle PDF files — always use OCR
       if (ext === '.pdf') {
-        // Use OCR if requested
-        if (useOCR) {
-          console.log('Using DeepSeek-OCR for PDF extraction...')
+        console.log('Using DeepSeek-OCR for PDF extraction...')
 
-          // Set up progress listener
-          const progressCleanup = window.electronAPI.onOCRProgress((progress) => {
-            console.log(`[OCR Progress] ${progress.message} (${progress.current}/${progress.total} - ${progress.percentage}%)`)
-            onOCRProgress?.(progress)
-          })
+        const progressCleanup = window.electronAPI.onOCRProgress((progress) => {
+          console.log(`[OCR Progress] ${progress.message} (${progress.current}/${progress.total} - ${progress.percentage}%)`)
+          onOCRProgress?.(progress)
+        })
 
-          try {
-            const ocrResult = await window.electronAPI.analyzePDFWithOCR(actualFilePath, undefined, selectedPages)
+        try {
+          const ocrResult = await window.electronAPI.analyzePDFWithOCR(actualFilePath, undefined, selectedPages)
 
-            // Clean up progress listener
-            progressCleanup()
-            if (!ocrResult.success || !ocrResult.text) {
-              const errorMsg = ocrResult.error || 'Failed to extract PDF text with OCR'
-              console.error('PDF OCR extraction failed:', {
-                error: errorMsg,
-                filePath: actualFilePath,
-                processedPages: ocrResult.processedPages,
-                errors: ocrResult.errors,
-              })
-              throw new Error(errorMsg)
-            }
-            text = ocrResult.text
-            metadata = {
-              pageCount: ocrResult.pageCount,
-              // OCR doesn't provide metadata, so we'll leave it undefined
-            }
-
-            // Parse OCR result as markdown (since DeepSeek-OCR outputs markdown)
-            const segments = parseDocument(text, '.md') // Parse as markdown since OCR returns markdown
-
-            console.log('PDF document imported with OCR:', {
-              filePath: actualFilePath,
-              textLength: text.length,
-              segmentCount: segments.length,
-              processedPages: ocrResult.processedPages,
-              pageCount: ocrResult.pageCount,
-              errors: ocrResult.errors,
-              segments: segments.map(s => ({
-                id: s.id,
-                level: s.level,
-                type: s.type,
-                textPreview: s.text.substring(0, 50) + '...',
-              })),
-            })
-            
-            return {
-              filePath: actualFilePath,
-              text,
-              segments,
-              metadata,
-            }
-          } catch (error) {
-            // Clean up progress listener on error
-            progressCleanup()
-            throw error
-          }
-        } else {
-          // Use regular pdf2json extraction
-          const result = await window.electronAPI.extractPDFText(actualFilePath)
-          if (!result.success || !result.text) {
-            const errorMsg = result.error || 'Failed to extract PDF text'
-            console.error('PDF extraction failed:', {
+          progressCleanup()
+          if (!ocrResult.success || !ocrResult.text) {
+            const errorMsg = ocrResult.error || 'Failed to extract PDF text with OCR'
+            console.error('PDF OCR extraction failed:', {
               error: errorMsg,
-              stack: (result as any).stack,
               filePath: actualFilePath,
+              processedPages: ocrResult.processedPages,
+              errors: ocrResult.errors,
             })
             throw new Error(errorMsg)
           }
-          text = result.text
-          metadata = {
-            pageCount: result.pageCount,
-            title: result.metadata?.title,
-            author: result.metadata?.author,
-            subject: result.metadata?.subject,
-          }
+          text = ocrResult.text
+          metadata = { pageCount: ocrResult.pageCount }
 
-          // Parse document with PDF-specific segmentation
-          const segments = parseDocument(text, ext, result.textItems)
+          const segments = parseDocument(text, '.md')
 
-          // Log segments for debugging
-          console.log('PDF document imported with improved segmentation:', {
+          console.log('PDF document imported with OCR:', {
             filePath: actualFilePath,
             textLength: text.length,
             segmentCount: segments.length,
-            textItemsCount: result.textItems?.length || 0,
-            segments: segments.map(s => ({
-              id: s.id,
-              level: s.level,
-              type: s.type,
-              fontSize: s.fontSize,
-              isBold: s.isBold,
-              pageNumber: s.pageNumber,
-              textPreview: s.text.substring(0, 50) + '...',
-            })),
+            processedPages: ocrResult.processedPages,
+            pageCount: ocrResult.pageCount,
           })
-          
+
           return {
             filePath: actualFilePath,
             text,
             segments,
             metadata,
-            pdfTextItems: result.textItems,
           }
+        } catch (error) {
+          progressCleanup()
+          throw error
         }
       } else {
         // Handle text/markdown files
         const result = await window.electronAPI.readDocumentFile(actualFilePath)
         if (!result.success || !result.content) {
-        console.error('Document file read failed:', {
-          error: result.error,
+          console.error('Document file read failed:', {
+            error: result.error,
+            filePath: actualFilePath,
+          })
+          throw new Error(result.error || 'Failed to read document file')
+        }
+        text = result.content
+
+        const segments = parseDocument(text, ext)
+
+        console.log('Document imported:', {
           filePath: actualFilePath,
-          result,
+          textLength: text.length,
+          segmentCount: segments.length,
         })
-        throw new Error(result.error || 'Failed to read document file')
+
+        return {
+          filePath: actualFilePath,
+          text,
+          segments,
+          metadata,
+        }
       }
-      text = result.content
-    }
-
-    // Parse document into segments
-    const segments = parseDocument(text, ext)
-
-    // Log segments for debugging
-    console.log('Document imported:', {
-      filePath: actualFilePath,
-      textLength: text.length,
-      segmentCount: segments.length,
-      segments: segments.map(s => ({
-        id: s.id,
-        level: s.level,
-        type: s.type,
-        fontSize: s.fontSize,
-        isBold: s.isBold,
-        textPreview: s.text.substring(0, 50) + '...',
-      })),
-    })
-
-    return {
-      filePath: actualFilePath,
-      text,
-      segments,
-      metadata,
-    }
     } catch (error) {
       console.error('Error importing document:', error)
       throw error

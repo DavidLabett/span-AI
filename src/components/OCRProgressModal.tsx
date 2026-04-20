@@ -8,8 +8,8 @@ import { theme, typography, spacing, colors } from '../theme'
 interface OCRProgressModalProps {
   isVisible: boolean
   message: string
-  current: number
-  total: number
+  current?: number
+  total?: number
   percentage?: number
   onCancel?: () => void
 }
@@ -17,8 +17,6 @@ interface OCRProgressModalProps {
 export function OCRProgressModal({
   isVisible,
   message,
-  current,
-  total,
   onCancel,
 }: OCRProgressModalProps) {
   if (!isVisible) {
@@ -76,19 +74,6 @@ export function OCRProgressModal({
           >
             {message}
           </p>
-        </div>
-
-        <div style={{ marginBottom: spacing[3] }}>
-          <span
-            style={{
-              fontFamily: typography.fontFamily,
-              fontSize: typography.sizes.description,
-              color: theme.text,
-              fontWeight: 500,
-            }}
-          >
-            Page {Math.max(0, current)} of {Math.max(1, total)}
-          </span>
         </div>
 
         {onCancel && (

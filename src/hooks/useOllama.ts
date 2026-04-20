@@ -100,9 +100,9 @@ export function useOllama() {
     }
   }, [config])
 
-  const callLLM = useCallback(async (prompt: string): Promise<string> => {
+  const callLLM = useCallback(async (prompt: string, options?: { maxTokens?: number }): Promise<string> => {
     try {
-      const result = await window.electronAPI.aiCallLLM(prompt, config.baseUrl, config.model)
+      const result = await window.electronAPI.aiCallLLM(prompt, config.baseUrl, config.model, options?.maxTokens)
       if (result.success && result.response) {
         return result.response
       } else {

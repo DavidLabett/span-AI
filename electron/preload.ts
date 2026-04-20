@@ -47,8 +47,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readDocumentFile: (filePath: string) =>
     ipcRenderer.invoke('read-document-file', filePath),
 
-  extractPDFText: (filePath: string) =>
-    ipcRenderer.invoke('extract-pdf-text', filePath),
+  getPDFPageCount: (filePath: string) =>
+    ipcRenderer.invoke('get-pdf-page-count', filePath),
 
   // Ollama/LLM API
   aiCheckOllama: (baseUrl?: string) =>
@@ -63,8 +63,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   aiSetConfig: (config: { baseUrl?: string; model?: string }) =>
     ipcRenderer.invoke('ai-set-config', config),
 
-  aiCallLLM: (prompt: string, baseUrl?: string, model?: string) =>
-    ipcRenderer.invoke('ai-call-llm', prompt, baseUrl, model),
+  aiCallLLM: (prompt: string, baseUrl?: string, model?: string, maxTokens?: number) =>
+    ipcRenderer.invoke('ai-call-llm', prompt, baseUrl, model, maxTokens),
 
   // OCR API
   aiCallOCR: (imagePath: string, prompt?: string, baseUrl?: string) =>
