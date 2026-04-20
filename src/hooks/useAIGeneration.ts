@@ -15,6 +15,42 @@ import {
 import { buildHierarchyTree, validateHierarchyTree, getTreeStats, flattenHierarchy } from '../utils/hierarchyBuilder'
 import { useOllama } from './useOllama'
 import { calculateNodeWidth, calculateNodeHeight } from '../utils/textMeasurement'
+import { colors } from '../theme'
+
+const BRANCH_COLORS = [
+  colors.blue,
+  colors.green,
+  colors.yellow,
+  colors.peach,
+  colors.mauve,
+  colors.sapphire,
+  colors.teal,
+  colors.pink,
+]
+
+function shuffled<T>(arr: T[]): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+function buildColorMap(root: HierarchyNode): Map<string, string> {
+  const map = new Map<string, string>()
+  const palette = shuffled(BRANCH_COLORS)
+  root.children.forEach((child, idx) => {
+    const color = palette[idx % palette.length]
+    assignColor(child, color, map)
+  })
+  return map
+}
+
+function assignColor(node: HierarchyNode, color: string, map: Map<string, string>): void {
+  map.set(node.id, color)
+  node.children.forEach(child => assignColor(child, color, map))
+}
 
 export interface GenerationProgress {
   step: 'idle' | 'analyzing' | 'generating' | 'complete' | 'error'
@@ -150,6 +186,7 @@ export function useAIGeneration() {
       totalNodesToGenerate: totalNodes,
     })
 
+    const colorMap = buildColorMap(hierarchy)
     const generatedNodes: GeneratedNode[] = []
     const BATCH_SIZE = 5  // Process 5 nodes in parallel
 
@@ -197,6 +234,7 @@ export function useAIGeneration() {
               title,
               description,
               collapsed: false,
+              titleColor: colorMap.get(hierarchyNode.id),
             }
 
             return {
