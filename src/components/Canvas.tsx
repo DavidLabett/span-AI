@@ -153,7 +153,7 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
       const response = await callLLM(testPrompt)
       console.log('Step 4: Received Ollama response:', response)
 
-      alert(`Ollama is working! ✅\n\nResponse: ${response}`)
+      alert(`Ollama is working!\n\nResponse: ${response}`)
     } catch (error) {
       console.error('Ollama test failed with error:', error)
       alert(`Ollama test failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -278,13 +278,13 @@ export function Canvas({ initialProjectPath }: CanvasProps = {}) {
                 const stats = aiProgress.stats
                 if (stats) {
                   alert(
-                    `Mindmap generated! ✅\n\n` +
+                    `Mindmap generated!\n\n` +
                     `File: ${document.filePath.split(/[/\\]/).pop()}\n` +
                     `Segments: ${document.segments.length}\n` +
                     `Nodes created: ${generatedNodes.length}\n` +
                     `Edges created: ${Object.keys(edgeMap).length}\n` +
                     `Max depth: ${stats.maxDepth}\n\n` +
-                    `The mindmap is ready and laid out! ✅`
+                    `The mindmap is ready and laid out!`
                   )
                 }
               } catch (error) {

@@ -324,10 +324,10 @@ export function ModelSettingsModal({ isVisible, onClose }: ModelSettingsModalPro
               }}
             >
               {status.modelAvailable ? (
-                <span style={{ color: colors.green }}>✓ Model available</span>
+                <span style={{ color: colors.green }}>Model available</span>
               ) : (
                 <span style={{ color: colors.red }}>
-                  ✗ Model not available. Run: <code style={{ backgroundColor: theme.surface0, padding: '2px 4px', borderRadius: '2px' }}>ollama pull {llmModel}</code>
+                  Model not available. Run: <code style={{ backgroundColor: theme.surface0, padding: '2px 4px', borderRadius: '2px' }}>ollama pull {llmModel}</code>
                 </span>
               )}
             </div>
@@ -417,7 +417,7 @@ export function ModelSettingsModal({ isVisible, onClose }: ModelSettingsModalPro
                 color: colors.green,
               }}
             >
-              ✓ Configuration saved successfully
+              Configuration saved successfully
             </div>
           </div>
         )}

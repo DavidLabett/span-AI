@@ -10,7 +10,7 @@ interface OCRProgressModalProps {
   message: string
   current: number
   total: number
-  percentage: number
+  percentage?: number
   onCancel?: () => void
 }
 
@@ -19,7 +19,6 @@ export function OCRProgressModal({
   message,
   current,
   total,
-  percentage,
   onCancel,
 }: OCRProgressModalProps) {
   if (!isVisible) {
@@ -65,7 +64,7 @@ export function OCRProgressModal({
               color: theme.text,
             }}
           >
-            📄 Processing PDF with OCR
+            Processing PDF with OCR
           </h2>
           <p
             style={{
@@ -80,54 +79,16 @@ export function OCRProgressModal({
         </div>
 
         <div style={{ marginBottom: spacing[3] }}>
-          <div
+          <span
             style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: spacing[2],
+              fontFamily: typography.fontFamily,
+              fontSize: typography.sizes.description,
+              color: theme.text,
+              fontWeight: 500,
             }}
           >
-            <span
-              style={{
-                fontFamily: typography.fontFamily,
-                fontSize: typography.sizes.description,
-                color: theme.text,
-                fontWeight: 500,
-              }}
-            >
-              Page {Math.max(0, current)} of {Math.max(1, total)}
-            </span>
-            <span
-              style={{
-                fontFamily: typography.fontFamily,
-                fontSize: typography.sizes.description,
-                color: theme.textMuted,
-              }}
-            >
-              {Math.max(0, Math.min(100, percentage))}%
-            </span>
-          </div>
-          <div
-            style={{
-              width: '100%',
-              height: '12px',
-              backgroundColor: theme.surface0,
-              borderRadius: '6px',
-              overflow: 'hidden',
-              border: `1px solid ${theme.border}`,
-            }}
-          >
-            <div
-              style={{
-                width: `${Math.max(0, Math.min(100, percentage))}%`,
-                height: '100%',
-                backgroundColor: colors.blue,
-                transition: 'width 0.3s ease',
-                borderRadius: '6px',
-              }}
-            />
-          </div>
+            Page {Math.max(0, current)} of {Math.max(1, total)}
+          </span>
         </div>
 
         {onCancel && (
@@ -136,7 +97,7 @@ export function OCRProgressModal({
             style={{
               width: '100%',
               padding: spacing[2],
-              backgroundColor: theme.surface0,
+              backgroundColor: colors.mantle,
               color: theme.text,
               border: `1px solid ${theme.border}`,
               borderRadius: '4px',
@@ -147,10 +108,10 @@ export function OCRProgressModal({
               transition: 'background-color 0.2s',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = theme.surface1
+              e.currentTarget.style.backgroundColor = colors.crust
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = theme.surface0
+              e.currentTarget.style.backgroundColor = colors.mantle
             }}
           >
             Cancel

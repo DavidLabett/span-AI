@@ -65,9 +65,9 @@ export function AIGenerationModal({ progress, onClose }: AIGenerationModalProps)
             }}
           >
             {isError ? (
-              <>❌ Error</>
+              <>Error</>
             ) : isComplete ? (
-              <>✅ Generation Complete</>
+              <>Generation Complete</>
             ) : (
               <>
                 <div
@@ -99,64 +99,22 @@ export function AIGenerationModal({ progress, onClose }: AIGenerationModalProps)
         </div>
 
         <div style={{ marginBottom: spacing[3] }}>
-          <div
+          <span
             style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: spacing[2],
+              fontFamily: typography.fontFamily,
+              fontSize: typography.sizes.description,
+              color: theme.text,
+              fontWeight: 500,
             }}
           >
-            <span
-              style={{
-                fontFamily: typography.fontFamily,
-                fontSize: typography.sizes.description,
-                color: theme.text,
-                fontWeight: 500,
-              }}
-            >
-              {progress.step === 'analyzing' && 'Analyzing document structure...'}
-              {progress.step === 'generating' && 
-                (progress.nodesGenerated !== undefined && progress.totalNodesToGenerate !== undefined
-                  ? `Generating nodes: ${progress.nodesGenerated} / ${progress.totalNodesToGenerate}`
-                  : 'Generating node content...')}
-              {progress.step === 'complete' && 'Processing complete'}
-              {progress.step === 'error' && 'Generation failed'}
-            </span>
-            <span
-              style={{
-                fontFamily: typography.fontFamily,
-                fontSize: typography.sizes.description,
-                color: theme.textMuted,
-              }}
-            >
-              {progress.progress}%
-            </span>
-          </div>
-          <div
-            style={{
-              width: '100%',
-              height: '12px',
-              backgroundColor: theme.surface0,
-              borderRadius: '6px',
-              overflow: 'hidden',
-              border: `1px solid ${theme.border}`,
-            }}
-          >
-            <div
-              style={{
-                width: `${progress.progress}%`,
-                height: '100%',
-                backgroundColor: isError 
-                  ? colors.red 
-                  : isComplete 
-                    ? colors.green 
-                    : colors.blue,
-                transition: 'width 0.3s ease',
-                borderRadius: '6px',
-              }}
-            />
-          </div>
+            {progress.step === 'analyzing' && 'Analyzing document structure...'}
+            {progress.step === 'generating' && 
+              (progress.nodesGenerated !== undefined && progress.totalNodesToGenerate !== undefined
+                ? `Generating nodes ${progress.nodesGenerated} / ${progress.totalNodesToGenerate}`
+                : 'Generating node content...')}
+            {progress.step === 'complete' && 'Processing complete'}
+            {progress.step === 'error' && 'Generation failed'}
+          </span>
         </div>
 
         {isError && progress.error && (

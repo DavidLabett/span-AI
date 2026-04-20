@@ -80,7 +80,7 @@ export function WelcomeScreen({ onNewProject, onOpenProject }: WelcomeScreenProp
                 onClick={() => setShowSettings(!showSettings)}
                 title="Settings"
               >
-                ⚙
+                Settings
               </button>
               <button 
                 className="new-project-button"
@@ -101,7 +101,7 @@ export function WelcomeScreen({ onNewProject, onOpenProject }: WelcomeScreenProp
                   onClick={() => setShowSettings(false)}
                   style={{ fontSize: '14px' }}
                 >
-                  ✕
+                  Close
                 </button>
               </div>
               <div className="settings-content">
