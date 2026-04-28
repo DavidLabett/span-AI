@@ -644,7 +644,7 @@ except Exception as e:
                     if (popplerPath) {
                         args.push(popplerPath);
                     }
-                    const process = spawn(python, args);
+                    const process = spawn(python, args, { windowsHide: true });
 
                     let errorOutput = '';
                     process.stderr.on('data', (data) => {
@@ -840,7 +840,7 @@ except Exception as e:
                             if (popplerPath) {
                                 args.push(popplerPath);
                             }
-                            const process = spawn(python, args);
+                            const process = spawn(python, args, { windowsHide: true });
 
                             let stdoutOutput = '';
                             let errorOutput = '';
